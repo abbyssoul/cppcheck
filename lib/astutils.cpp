@@ -221,9 +221,9 @@ bool isSameExpression(bool cpp, bool macro, const Token *tok1, const Token *tok2
         return true;
 
     // in c++, a+b might be different to b+a, depending on the type of a and b
-    if (cpp && tok1->str() == "+") {
+    if (cpp && tok1->str() == "+" && tok1->astOperand2()) {
         const ValueType* vt1 = tok1->astOperand1()->valueType();
-        const ValueType* vt2 = tok1->astOperand1()->valueType();
+        const ValueType* vt2 = tok1->astOperand2()->valueType();
         if (!(vt1 && (vt1->type >= ValueType::VOID || vt1->pointer) && vt2 && (vt2->type >= ValueType::VOID || vt2->pointer)))
             return false;
     }
@@ -273,6 +273,48 @@ bool isOppositeCond(bool isNot, bool cpp, const Token * const cond1, const Token
             comp2[0] = '<';
         else if (comp2[0] == '<')
             comp2[0] = '>';
+    }
+
+    if (!isNot && comp2.empty()) {
+        const Token *expr1 = nullptr, *value1 = nullptr, *expr2 = nullptr, *value2 = nullptr;
+        std::string op1 = cond1->str(), op2 = cond2->str();
+        if (cond1->astOperand2()->hasKnownIntValue()) {
+            expr1 = cond1->astOperand1();
+            value1 = cond1->astOperand2();
+        } else if (cond1->astOperand1()->hasKnownIntValue()) {
+            expr1 = cond1->astOperand2();
+            value1 = cond1->astOperand1();
+            if (op1[0] == '>')
+                op1[0] = '<';
+            else if (op1[0] == '<')
+                op1[0] = '>';
+        }
+        if (cond2->astOperand2()->hasKnownIntValue()) {
+            expr2 = cond2->astOperand1();
+            value2 = cond2->astOperand2();
+        } else if (cond2->astOperand1()->hasKnownIntValue()) {
+            expr2 = cond2->astOperand2();
+            value2 = cond2->astOperand1();
+            if (op2[0] == '>')
+                op2[0] = '<';
+            else if (op2[0] == '<')
+                op2[0] = '>';
+        }
+        if (!expr1 || !value1 || !expr2 || !value2) {
+            return false;
+        }
+        if (!isSameExpression(cpp, true, expr1, expr2, library, pure))
+            return false;
+
+        const ValueFlow::Value &rhsValue1 = value1->values().front();
+        const ValueFlow::Value &rhsValue2 = value2->values().front();
+
+        if (op1 == "<" || op1 == "<=")
+            return (op2 == "==" || op2 == ">" || op2 == ">=") && (rhsValue1.intvalue < rhsValue2.intvalue);
+        else if (op1 == ">=" || op1 == ">")
+            return (op2 == "==" || op2 == "<" || op2 == "<=") && (rhsValue1.intvalue > rhsValue2.intvalue);
+
+        return false;
     }
 
     // is condition opposite?
@@ -390,11 +432,28 @@ bool isVariableChangedByFunctionCall(const Token *tok, const Settings *settings,
     tok = tok ? tok->previous() : nullptr;
     if (tok && tok->link() && tok->str() == ">")
         tok = tok->link()->previous();
-    if (!Token::Match(tok, "%name% ("))
+    if (!Token::Match(tok, "%name% [(<]"))
         return false; // not a function => variable not changed
 
-    if (tok->varId())
-        return false; // Constructor call of tok => variable probably not changed by constructor call
+    // Constructor call
+    if (tok->variable() && tok->variable()->nameToken() == tok) {
+        // Find constructor..
+        const unsigned int argCount = numberOfArguments(tok);
+        const ::Scope *typeScope = tok->variable()->typeScope();
+        if (typeScope) {
+            for (std::list<Function>::const_iterator it = typeScope->functionList.begin(); it != typeScope->functionList.end(); ++it) {
+                if (!it->isConstructor() || it->argCount() < argCount)
+                    continue;
+                const Variable *arg = it->getArgumentVar(argnr);
+                if (arg && arg->isReference() && !arg->isConst())
+                    return true;
+            }
+            return false;
+        }
+        if (inconclusive)
+            *inconclusive = true;
+        return false;
+    }
 
     if (!tok->function()) {
         // if the library says 0 is invalid
@@ -418,34 +477,48 @@ bool isVariableChangedByFunctionCall(const Token *tok, const Settings *settings,
     return arg && !arg->isConst() && arg->isReference();
 }
 
-bool isVariableChanged(const Token *start, const Token *end, const unsigned int varid, const Settings *settings)
+bool isVariableChanged(const Token *start, const Token *end, const unsigned int varid, bool globalvar, const Settings *settings)
 {
     for (const Token *tok = start; tok != end; tok = tok->next()) {
-        if (tok->varId() == varid) {
-            if (Token::Match(tok, "%name% %assign%|++|--"))
+        if (tok->varId() != varid) {
+            if (globalvar && Token::Match(tok, "%name% ("))
+                // TODO: Is global variable really changed by function call?
                 return true;
+            continue;
+        }
 
-            if (Token::Match(tok->previous(), "++|-- %name%"))
+        if (Token::Match(tok, "%name% %assign%|++|--"))
+            return true;
+
+        if (Token::Match(tok->previous(), "++|-- %name%"))
+            return true;
+
+        if (Token::simpleMatch(tok->previous(), ">>")) {
+            const Token *shr = tok->previous();
+            if (Token::simpleMatch(shr->astParent(), ">>"))
                 return true;
-
-            const Token *ftok = tok;
-            while (ftok && !Token::Match(ftok, "[({[]"))
-                ftok = ftok->astParent();
-
-            if (ftok && Token::Match(ftok->link(), ") !!{")) {
-                bool inconclusive = false;
-                bool isChanged = isVariableChangedByFunctionCall(tok, settings, &inconclusive);
-                isChanged |= inconclusive;
-                if (isChanged)
-                    return true;
-            }
-
-            const Token *parent = tok->astParent();
-            while (Token::Match(parent, ".|::"))
-                parent = parent->astParent();
-            if (parent && parent->tokType() == Token::eIncDecOp)
+            const Token *lhs = shr->astOperand1();
+            if (!lhs || !lhs->valueType() || !lhs->valueType()->isIntegral())
                 return true;
         }
+
+        const Token *ftok = tok;
+        while (ftok && !Token::Match(ftok, "[({[]"))
+            ftok = ftok->astParent();
+
+        if (ftok && Token::Match(ftok->link(), ") !!{")) {
+            bool inconclusive = false;
+            bool isChanged = isVariableChangedByFunctionCall(tok, settings, &inconclusive);
+            isChanged |= inconclusive;
+            if (isChanged)
+                return true;
+        }
+
+        const Token *parent = tok->astParent();
+        while (Token::Match(parent, ".|::"))
+            parent = parent->astParent();
+        if (parent && parent->tokType() == Token::eIncDecOp)
+            return true;
     }
     return false;
 }
@@ -481,4 +554,23 @@ std::vector<const Token *> getArguments(const Token *ftok)
     std::vector<const Token *> arguments;
     getArgumentsRecursive(ftok->next()->astOperand2(), &arguments);
     return arguments;
+}
+
+const Token *findLambdaEndToken(const Token *first)
+{
+    if (!first || first->str() != "[")
+        return nullptr;
+    const Token* tok = first->link();
+    if (Token::simpleMatch(tok, "] {"))
+        return tok->linkAt(1);
+    if (!Token::simpleMatch(tok, "] ("))
+        return nullptr;
+    tok = tok->linkAt(1)->next();
+    if (tok && tok->str() == "constexpr")
+        tok = tok->next();
+    if (tok && tok->str() == "mutable")
+        tok = tok->next();
+    if (tok && tok->str() == "{")
+        return tok->link();
+    return nullptr;
 }

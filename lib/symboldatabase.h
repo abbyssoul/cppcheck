@@ -100,7 +100,7 @@ public:
     std::vector<BaseInfo> derivedFrom;
     std::list<FriendInfo> friendList;
 
-    Type(const Token* classDef_ = 0, const Scope* classScope_ = 0, const Scope* enclosingScope_ = 0) :
+    Type(const Token* classDef_ = nullptr, const Scope* classScope_ = nullptr, const Scope* enclosingScope_ = nullptr) :
         classDef(classDef_),
         classScope(classScope_),
         enclosingScope(enclosingScope_),
@@ -479,7 +479,7 @@ public:
      * @return pointer to type scope if known, NULL if not known
      */
     const Scope *typeScope() const {
-        return _type ? _type->classScope : 0;
+        return _type ? _type->classScope : nullptr;
     }
 
     /**
@@ -903,7 +903,7 @@ public:
     std::list<UsingInfo> usingList;
     ScopeType type;
     Type* definedType;
-    std::list<Type*> definedTypes;
+    std::map<std::string, Type*> definedTypesMap;
 
     // function specific fields
     const Scope *functionOf; // scope this function belongs to
@@ -925,6 +925,10 @@ public:
 
     bool isClassOrStruct() const {
         return (type == eClass || type == eStruct);
+    }
+
+    bool isClassOrStructOrUnion() const {
+        return (type == eClass || type == eStruct || type == eUnion);
     }
 
     bool isExecutable() const {
@@ -1102,8 +1106,8 @@ public:
     const Scope *findScopeByName(const std::string& name) const;
 
     const Type* findType(const Token *startTok, const Scope *startScope) const;
-    Type* findType(const Token *tok, Scope *startScope) const {
-        return const_cast<Type*>(this->findType(tok, const_cast<const Scope *>(startScope)));
+    Type* findType(const Token *startTok, Scope *startScope) const {
+        return const_cast<Type*>(this->findType(startTok, const_cast<const Scope *>(startScope)));
     }
 
     const Scope *findScope(const Token *tok, const Scope *startScope) const;
@@ -1207,6 +1211,9 @@ private:
 
     bool cpp;
     ValueType::Sign defaultSignedness;
+
+    /** "negative cache" list of tokens that we find are not enumeration values */
+    mutable std::set<std::string> tokensThatAreNotEnumeratorValues;
 };
 
 

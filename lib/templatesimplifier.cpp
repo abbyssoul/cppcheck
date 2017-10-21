@@ -789,6 +789,8 @@ void TemplateSimplifier::expandTemplate(
         }
         if (Token::Match(tok3, "{|(|["))
             tok3 = tok3->link();
+        else if (Token::simpleMatch(tok3, "namespace {"))
+            tok3 = tok3->tokAt(2);
 
         // Start of template..
         if (tok3 == tok) {
@@ -987,9 +989,9 @@ bool TemplateSimplifier::simplifyNumericCalculations(Token *tok)
 
         // Logical operations
         else if (Token::Match(op, "%oror%|&&")) {
-            int op1 = !MathLib::isNullValue(tok->str());
-            int op2 = !MathLib::isNullValue(tok->strAt(2));
-            int result = (op->str() == "||") ? (op1 || op2) : (op1 && op2);
+            bool op1 = !MathLib::isNullValue(tok->str());
+            bool op2 = !MathLib::isNullValue(tok->strAt(2));
+            bool result = (op->str() == "||") ? (op1 || op2) : (op1 && op2);
             tok->str(result ? "1" : "0");
         }
 
@@ -1379,7 +1381,7 @@ void TemplateSimplifier::replaceTemplateUsage(Token * const instantiationToken,
         // match parameters
         Token * tok2 = nameTok->tokAt(2);
         unsigned int typeCountInInstantiation = 1U; // There is always at least one type
-        const Token *typetok = (!typesUsedInTemplateInstantiation.empty()) ? typesUsedInTemplateInstantiation[0] : 0;
+        const Token *typetok = (!typesUsedInTemplateInstantiation.empty()) ? typesUsedInTemplateInstantiation[0] : nullptr;
         unsigned int indentlevel2 = 0;  // indentlevel for tokgt
         while (tok2 && (indentlevel2 > 0 || tok2->str() != ">")) {
             if (tok2->str() == "<" && templateParameters(tok2) > 0)
@@ -1395,7 +1397,7 @@ void TemplateSimplifier::replaceTemplateUsage(Token * const instantiationToken,
                         break;
                     }
 
-                    typetok = typetok ? typetok->next() : 0;
+                    typetok = typetok->next();
                 } else {
                     if (typeCountInInstantiation < typesUsedInTemplateInstantiation.size())
                         typetok = typesUsedInTemplateInstantiation[typeCountInInstantiation++];

@@ -93,7 +93,7 @@ unsigned int CppCheck::check(const ImportProject::FileSettings &fs)
 {
     CppCheck temp(_errorLogger, _useGlobalSuppressions);
     temp._settings = _settings;
-    temp._settings.userDefines = fs.defines;
+    temp._settings.userDefines = fs.cppcheckDefines();
     temp._settings.includePaths = fs.includePaths;
     // TODO: temp._settings.userUndefs = fs.undefs;
     if (fs.platformType != Settings::Unspecified) {
@@ -114,7 +114,7 @@ unsigned int CppCheck::processFile(const std::string& filename, const std::strin
     if (_settings.terminated())
         return exitcode;
 
-    if (_settings.quiet == false) {
+    if (!_settings.quiet) {
         std::string fixedpath = Path::simplifyPath(filename);
         fixedpath = Path::toNativeSeparators(fixedpath);
         _errorLogger.reportOut(std::string("Checking ") + fixedpath + ' ' + cfgname + std::string("..."));
@@ -134,7 +134,7 @@ unsigned int CppCheck::processFile(const std::string& filename, const std::strin
         plistFile.close();
     }
 
-    CheckUnusedFunctions checkUnusedFunctions(0,0,0);
+    CheckUnusedFunctions checkUnusedFunctions(nullptr, nullptr, nullptr);
 
     bool internalErrorFound(false);
     try {
@@ -147,20 +147,35 @@ unsigned int CppCheck::processFile(const std::string& filename, const std::strin
 
         // If there is a syntax error, report it and stop
         for (simplecpp::OutputList::const_iterator it = outputList.begin(); it != outputList.end(); ++it) {
-            if (it->type != simplecpp::Output::SYNTAX_ERROR)
-                continue;
-            const ErrorLogger::ErrorMessage::FileLocation loc1(it->location.file(), it->location.line);
-            std::list<ErrorLogger::ErrorMessage::FileLocation> callstack;
-            callstack.push_back(loc1);
+            bool err;
+            switch (it->type) {
+            case simplecpp::Output::ERROR:
+            case simplecpp::Output::INCLUDE_NESTED_TOO_DEEPLY:
+            case simplecpp::Output::SYNTAX_ERROR:
+            case simplecpp::Output::UNHANDLED_CHAR_ERROR:
+                err = true;
+                break;
+            case simplecpp::Output::WARNING:
+            case simplecpp::Output::MISSING_HEADER:
+            case simplecpp::Output::PORTABILITY_BACKSLASH:
+                err = false;
+                break;
+            };
 
-            ErrorLogger::ErrorMessage errmsg(callstack,
-                                             "",
-                                             Severity::error,
-                                             it->msg,
-                                             "syntaxError",
-                                             false);
-            _errorLogger.reportErr(errmsg);
-            return 1;
+            if (err) {
+                const ErrorLogger::ErrorMessage::FileLocation loc1(it->location.file(), it->location.line);
+                std::list<ErrorLogger::ErrorMessage::FileLocation> callstack;
+                callstack.push_back(loc1);
+
+                ErrorLogger::ErrorMessage errmsg(callstack,
+                                                 "",
+                                                 Severity::error,
+                                                 it->msg,
+                                                 "syntaxError",
+                                                 false);
+                _errorLogger.reportErr(errmsg);
+                return 1;
+            }
         }
 
         preprocessor.loadFiles(tokens1, files);
@@ -179,7 +194,7 @@ unsigned int CppCheck::processFile(const std::string& filename, const std::strin
         // write dump file xml prolog
         std::ofstream fdump;
         if (_settings.dump) {
-            const std::string dumpfile(filename + ".dump");
+            const std::string dumpfile(_settings.dumpFile.empty() ? (filename + ".dump") : _settings.dumpFile);
             fdump.open(dumpfile.c_str());
             if (fdump.is_open()) {
                 fdump << "<?xml version=\"1.0\"?>" << std::endl;
@@ -297,7 +312,7 @@ unsigned int CppCheck::processFile(const std::string& filename, const std::strin
             cfg = *it;
 
             // If only errors are printed, print filename after the check
-            if (_settings.quiet == false && (!cfg.empty() || it != configurations.begin())) {
+            if (!_settings.quiet && (!cfg.empty() || it != configurations.begin())) {
                 std::string fixedpath = Path::simplifyPath(filename);
                 fixedpath = Path::toNativeSeparators(fixedpath);
                 _errorLogger.reportOut("Checking " + fixedpath + ": " + cfg + "...");
@@ -360,7 +375,7 @@ unsigned int CppCheck::processFile(const std::string& filename, const std::strin
 
                 // dump xml if --dump
                 if (_settings.dump && fdump.is_open()) {
-                    fdump << "<dump cfg=\"" << cfg << "\">" << std::endl;
+                    fdump << "<dump cfg=\"" << ErrorLogger::toxml(cfg) << "\">" << std::endl;
                     preprocessor.dump(fdump);
                     _tokenizer.dump(fdump);
                     fdump << "</dump>" << std::endl;

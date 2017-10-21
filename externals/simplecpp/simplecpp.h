@@ -52,6 +52,8 @@ namespace simplecpp {
     public:
         explicit Location(const std::vector<std::string> &f) : files(f), fileIndex(0), line(1U), col(0U) {}
 
+        Location(const Location &loc) : files(loc.files), fileIndex(loc.fileIndex), line(loc.line), col(loc.col) {}
+
         Location &operator=(const Location &other) {
             if (this != &other) {
                 fileIndex = other.fileIndex;
@@ -77,14 +79,15 @@ namespace simplecpp {
         }
 
         const std::string& file() const {
-            static const std::string temp;
-            return fileIndex < files.size() ? files[fileIndex] : temp;
+            return fileIndex < files.size() ? files[fileIndex] : emptyFileName;
         }
 
         const std::vector<std::string> &files;
         unsigned int fileIndex;
         unsigned int line;
         unsigned int col;
+    private:
+        const std::string emptyFileName;
     };
 
     /**
@@ -147,6 +150,9 @@ namespace simplecpp {
         void printOut() const;
     private:
         TokenString string;
+
+        // Not implemented - prevent assignment
+        Token &operator=(const Token &tok);
     };
 
     /** Output from preprocessor */
@@ -158,7 +164,8 @@ namespace simplecpp {
             MISSING_HEADER,
             INCLUDE_NESTED_TOO_DEEPLY,
             SYNTAX_ERROR,
-            PORTABILITY_BACKSLASH
+            PORTABILITY_BACKSLASH,
+            UNHANDLED_CHAR_ERROR
         } type;
         Location location;
         std::string msg;
@@ -173,13 +180,13 @@ namespace simplecpp {
         TokenList(std::istream &istr, std::vector<std::string> &filenames, const std::string &filename=std::string(), OutputList *outputList = 0);
         TokenList(const TokenList &other);
         ~TokenList();
-        void operator=(const TokenList &other);
+        TokenList &operator=(const TokenList &other);
 
         void clear();
         bool empty() const {
             return !frontToken;
         }
-        void push_back(Token *token);
+        void push_back(Token *tok);
 
         void dump() const;
         std::string stringify() const;
@@ -243,10 +250,11 @@ namespace simplecpp {
         void constFoldUnaryNotPosNeg(Token *tok);
         void constFoldMulDivRem(Token *tok);
         void constFoldAddSub(Token *tok);
+        void constFoldShift(Token *tok);
         void constFoldComparison(Token *tok);
         void constFoldBitwise(Token *tok);
         void constFoldLogicalOp(Token *tok);
-        void constFoldQuestionOp(Token **tok);
+        void constFoldQuestionOp(Token **tok1);
 
         std::string readUntil(std::istream &istr, const Location &location, const char start, const char end, OutputList *outputList);
 
@@ -268,6 +276,7 @@ namespace simplecpp {
     };
 
     struct SIMPLECPP_LIB DUI {
+        DUI() {}
         std::list<std::string> defines;
         std::set<std::string> undefined;
         std::list<std::string> includePaths;
@@ -293,6 +302,9 @@ namespace simplecpp {
      * Deallocate data
      */
     SIMPLECPP_LIB void cleanup(std::map<std::string, TokenList*> &filedata);
+
+    /** Simplify path */
+    SIMPLECPP_LIB std::string simplifyPath(std::string path);
 }
 
 #endif

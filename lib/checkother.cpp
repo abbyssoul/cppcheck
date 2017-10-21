@@ -994,8 +994,8 @@ void CheckOther::checkUnreachableCode()
         const Scope * scope = symbolDatabase->functionScopes[i];
 
         for (const Token* tok = scope->classStart; tok && tok != scope->classEnd; tok = tok->next()) {
-            const Token* secondBreak = 0;
-            const Token* labelName = 0;
+            const Token* secondBreak = nullptr;
+            const Token* labelName = nullptr;
             if (tok->link() && Token::Match(tok, "(|[|<"))
                 tok = tok->link();
             else if (Token::Match(tok, "break|continue ;"))
@@ -1177,7 +1177,7 @@ bool CheckOther::checkInnerScope(const Token *tok, const Variable* var, bool& us
     const Scope* scope = tok->next()->scope();
     bool loopVariable = scope->type == Scope::eFor || scope->type == Scope::eWhile || scope->type == Scope::eDo;
     bool noContinue = true;
-    const Token* forHeadEnd = 0;
+    const Token* forHeadEnd = nullptr;
     const Token* end = tok->link();
     if (scope->type == Scope::eUnconditional && (tok->strAt(-1) == ")" || tok->previous()->isName())) // Might be an unknown macro like BOOST_FOREACH
         loopVariable = true;
@@ -1209,7 +1209,7 @@ bool CheckOther::checkInnerScope(const Token *tok, const Variable* var, bool& us
         if (Token::simpleMatch(tok, "for ("))
             forHeadEnd = tok->linkAt(1);
         if (tok == forHeadEnd)
-            forHeadEnd = 0;
+            forHeadEnd = nullptr;
 
         if (loopVariable && noContinue && tok->scope() == scope && !forHeadEnd && scope->type != Scope::eSwitch && Token::Match(tok, "%varid% =", var->declarationId())) { // Assigned in outer scope.
             loopVariable = false;
@@ -1379,7 +1379,7 @@ void CheckOther::checkPassByReference()
         const Token* const tok = var->typeStartToken();
         if (var->isStlStringType()) {
             ;
-        } else if (var->isStlType() && Token::Match(tok, "std :: %type% <") && !Token::simpleMatch(tok->linkAt(3), "> ::") && !Token::Match(tok->tokAt(2), "initializer_list|weak_ptr|auto_ptr")) {
+        } else if (var->isStlType() && Token::Match(tok, "std :: %type% <") && !Token::simpleMatch(tok->linkAt(3), "> ::") && !Token::Match(tok->tokAt(2), "initializer_list|weak_ptr|auto_ptr|unique_ptr")) {
             ;
         } else if (var->type() && !var->type()->isEnumType()) { // Check if type is a struct or class.
             // Ensure that it is a large object.
@@ -1568,62 +1568,53 @@ void CheckOther::checkIncompleteStatement()
         return;
 
     for (const Token *tok = _tokenizer->tokens(); tok; tok = tok->next()) {
-        if (tok->str() == "(") {
+        if (Token::Match(tok, "(|["))
             tok = tok->link();
-            if (Token::simpleMatch(tok, ") {") && Token::simpleMatch(tok->next()->link(), "} ;"))
-                tok = tok->next()->link();
-        }
 
-        else if (Token::simpleMatch(tok, "= {"))
-            tok = tok->next()->link();
+        else if (tok->str() == "{" && tok->astParent())
+            tok = tok->link();
 
         // C++11 struct/array/etc initialization in initializer list
         else if (Token::Match(tok->previous(), "%name%|] {") && !Token::findsimplematch(tok,";",tok->link()))
             tok = tok->link();
 
-        // C++11 vector initialization / return { .. }
-        else if (Token::Match(tok,"> %name% {") || Token::Match(tok, "[;{}] return {"))
-            tok = tok->linkAt(2);
 
-        // C++11 initialize set in initializer list : [,:] std::set<int>{1} [{,]
-        else if (Token::simpleMatch(tok,"> {") && tok->link())
-            tok = tok->next()->link();
+        if (!Token::Match(tok, "[;{}] %str%|%num%"))
+            continue;
 
-        else if (Token::Match(tok, "[;{}] %str%|%num%")) {
-            // No warning if numeric constant is followed by a "." or ","
-            if (Token::Match(tok->next(), "%num% [,.]"))
-                continue;
+        // No warning if numeric constant is followed by a "." or ","
+        if (Token::Match(tok->next(), "%num% [,.]"))
+            continue;
 
-            // No warning for [;{}] (void *) 0 ;
-            if (Token::Match(tok, "[;{}] 0 ;") && (tok->next()->isCast() || tok->next()->isExpandedMacro()))
-                continue;
+        // No warning for [;{}] (void *) 0 ;
+        if (Token::Match(tok, "[;{}] 0 ;") && (tok->next()->isCast() || tok->next()->isExpandedMacro()))
+            continue;
 
-            // bailout if there is a "? :" in this statement
-            bool bailout = false;
-            for (const Token *tok2 = tok->tokAt(2); tok2; tok2 = tok2->next()) {
-                if (tok2->str() == "?") {
-                    bailout = true;
-                    break;
-                } else if (tok2->str() == ";")
-                    break;
-            }
-            if (bailout)
-                continue;
-
-            // no warning if this is the last statement in a ({})
-            for (const Token *tok2 = tok->next(); tok2; tok2 = tok2->next()) {
-                if (tok2->str() == "(")
-                    tok2 = tok2->link();
-                else if (Token::Match(tok2, "[;{}]")) {
-                    bailout = Token::simpleMatch(tok2, "; } )");
-                    break;
-                }
-            }
-            if (bailout)
-                continue;
-
-            constStatementError(tok->next(), tok->next()->isNumber() ? "numeric" : "string");
+        // bailout if there is a "? :" in this statement
+        bool bailout = false;
+        for (const Token *tok2 = tok->tokAt(2); tok2; tok2 = tok2->next()) {
+            if (tok2->str() == "?") {
+                bailout = true;
+                break;
+            } else if (tok2->str() == ";")
+                break;
         }
+        if (bailout)
+            continue;
+
+        // no warning if this is the last statement in a ({})
+        for (const Token *tok2 = tok->next(); tok2; tok2 = tok2->next()) {
+            if (tok2->str() == "(")
+                tok2 = tok2->link();
+            else if (Token::Match(tok2, "[;{}]")) {
+                bailout = Token::simpleMatch(tok2, "; } )");
+                break;
+            }
+        }
+        if (bailout)
+            continue;
+
+        constStatementError(tok->next(), tok->next()->isNumber() ? "numeric" : "string");
     }
 }
 
@@ -1671,16 +1662,17 @@ void CheckOther::zerodivError(const Token *tok, const ValueFlow::Value *value)
     const ErrorPath errorPath = getErrorPath(tok, value, "Division by zero");
 
     std::ostringstream errmsg;
-    if (value->condition)
+    if (value->condition) {
+        unsigned int line = tok ? tok->linenr() : 0;
         errmsg << ValueFlow::eitherTheConditionIsRedundant(value->condition)
-               << " or there is division by zero at line " << tok->linenr() << ".";
-    else
+               << " or there is division by zero at line " << line << ".";
+    } else
         errmsg << "Division by zero.";
 
     reportError(errorPath,
                 value->errorSeverity() ? Severity::error : Severity::warning,
                 value->condition ? "zerodivcond" : "zerodiv",
-                errmsg.str(), CWE369, value->inconclusive);
+                errmsg.str(), CWE369, value->isInconclusive());
 }
 
 //---------------------------------------------------------------------------
@@ -2646,7 +2638,7 @@ void CheckOther::checkAccessOfMovedVariable()
             const ValueFlow::Value * movedValue = tok->getMovedValue();
             if (!movedValue || movedValue->moveKind == ValueFlow::Value::NonMovedVariable)
                 continue;
-            if (movedValue->inconclusive && !reportInconclusive)
+            if (movedValue->isInconclusive() && !reportInconclusive)
                 continue;
 
             bool inconclusive = false;
@@ -2666,7 +2658,7 @@ void CheckOther::checkAccessOfMovedVariable()
                 }
             }
             if (accessOfMoved || (inconclusive && reportInconclusive))
-                accessMovedError(tok, tok->str(), movedValue->moveKind, inconclusive || movedValue->inconclusive);
+                accessMovedError(tok, tok->str(), movedValue, inconclusive || movedValue->isInconclusive());
         }
     }
 }
@@ -2684,11 +2676,17 @@ bool CheckOther::isMovedParameterAllowedForInconclusiveFunction(const Token * to
     return true;
 }
 
-void CheckOther::accessMovedError(const Token *tok, const std::string &varname, ValueFlow::Value::MoveKind moveKind, bool inconclusive)
+void CheckOther::accessMovedError(const Token *tok, const std::string &varname, const ValueFlow::Value *value, bool inconclusive)
 {
+    if (!tok) {
+        reportError(tok, Severity::warning, "accessMoved", "Access of moved variable v.", CWE672, false);
+        reportError(tok, Severity::warning, "accessForwarded", "Access of forwarded variable v.", CWE672, false);
+        return;
+    }
+
     const char * errorId = nullptr;
-    const char * kindString = nullptr;
-    switch (moveKind) {
+    std::string kindString;
+    switch (value->moveKind) {
     case ValueFlow::Value::MovedVariable:
         errorId = "accessMoved";
         kindString = "moved";
@@ -2700,8 +2698,9 @@ void CheckOther::accessMovedError(const Token *tok, const std::string &varname, 
     default:
         return;
     }
-    const std::string errmsg(std::string("Access of ") + kindString + " variable " + varname + ".");
-    reportError(tok, Severity::warning, errorId, errmsg, CWE672, inconclusive);
+    const std::string errmsg("Access of " + kindString + " variable " + varname + ".");
+    const ErrorPath errorPath = getErrorPath(tok, value, errmsg);
+    reportError(errorPath, Severity::warning, errorId, errmsg, CWE672, inconclusive);
 }
 
 

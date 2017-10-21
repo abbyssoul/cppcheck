@@ -81,6 +81,7 @@ private:
         TEST_CASE(increment);           // #3251 : FP for increment
         TEST_CASE(cpp11init);           // #5493 : int i{1};
         TEST_CASE(block);               // ({ do_something(); 0; })
+        TEST_CASE(mapindex);
     }
 
     void test1() {
@@ -243,6 +244,11 @@ private:
               "    };\n"
               "}");
         ASSERT_EQUALS("", errout.str());
+
+        check("struct s foo() {\n"
+              "  return (struct s){0};\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
     }
 
     void cast() {
@@ -276,6 +282,13 @@ private:
         check("void f() {\n"
               "out:\n"
               "    ({ do_something(); 0; });\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void mapindex() {
+        check("void f() {\n"
+              "  map[{\"1\",\"2\"}]=0;\n"
               "}");
         ASSERT_EQUALS("", errout.str());
     }

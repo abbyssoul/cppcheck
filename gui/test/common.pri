@@ -1,8 +1,7 @@
-CONFIG += qtestlib
-greaterThan(QT_MAJOR_VERSION, 4) {
-    QT += widgets # In Qt 5 widgets are in separate module
-    QT += printsupport # In Qt 5 QPrinter/QPrintDialog are in separate module
-}
+Qt += testlib
+QT += widgets
+QT += printsupport
+
 INCLUDEPATH += $${PWD}/..
 
 LIBS += -L$$PWD/../../externals
@@ -17,7 +16,6 @@ SOURCES += $${PWD}/../erroritem.cpp \
     $${PWD}/../report.cpp \
     $${PWD}/../translationhandler.cpp \
     $${PWD}/../xmlreport.cpp \
-    $${PWD}/../xmlreportv1.cpp \
     $${PWD}/../xmlreportv2.cpp
 
 HEADERS += $${PWD}/../erroritem.h \
@@ -26,7 +24,6 @@ HEADERS += $${PWD}/../erroritem.h \
     $${PWD}/../report.h \
     $${PWD}/../translationhandler.h \
     $${PWD}/../xmlreport.h \
-    $${PWD}/../xmlreportv1.h \
     $${PWD}/../xmlreportv2.h
 
 contains(QMAKE_CC, gcc) {

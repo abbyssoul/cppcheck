@@ -155,11 +155,12 @@ void CheckSizeof::checkSizeofForPointerSize()
                 continue;
             }
 
-            if (tokFunc && tokFunc->str() == "calloc")
+            if (tokSize && tokFunc->str() == "calloc")
                 tokSize = tokSize->nextArgument();
 
-            if (tokFunc && tokSize) {
-                for (const Token* tok2 = tokSize; tok2 != tokFunc->linkAt(1); tok2 = tok2->next()) {
+            if (tokSize) {
+                const Token * const paramsListEndTok = tokFunc->linkAt(1);
+                for (const Token* tok2 = tokSize; tok2 != paramsListEndTok; tok2 = tok2->next()) {
                     if (Token::simpleMatch(tok2, "/ sizeof")) {
                         // Allow division with sizeof(char)
                         if (Token::simpleMatch(tok2->next(), "sizeof (")) {
@@ -188,19 +189,19 @@ void CheckSizeof::checkSizeofForPointerSize()
             // Only keep variables which are pointers
             const Variable *var = variable->variable();
             if (!var || !var->isPointer() || var->isArray()) {
-                variable = 0;
+                variable = nullptr;
             }
 
             if (variable2) {
                 var = variable2->variable();
                 if (!var || !var->isPointer() || var->isArray()) {
-                    variable2 = 0;
+                    variable2 = nullptr;
                 }
             }
 
             // If there are no pointer variable at this point, there is
             // no need to continue
-            if (variable == 0 && variable2 == 0) {
+            if (variable == nullptr && variable2 == nullptr) {
                 continue;
             }
 

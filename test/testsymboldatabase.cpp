@@ -251,7 +251,6 @@ private:
         TEST_CASE(symboldatabase36); // ticket #4892 (segmentation fault)
         TEST_CASE(symboldatabase37);
         TEST_CASE(symboldatabase38); // ticket #5125 (infinite recursion)
-        TEST_CASE(symboldatabase39); // ticket #5120 (infinite recursion)
         TEST_CASE(symboldatabase40); // ticket #5153
         TEST_CASE(symboldatabase41); // ticket #5197 (unknown macro)
         TEST_CASE(symboldatabase42); // only put variables in variable list
@@ -270,6 +269,7 @@ private:
         TEST_CASE(symboldatabase55); // #7767 (return unknown macro)
         TEST_CASE(symboldatabase56); // #7909
         TEST_CASE(symboldatabase57);
+        TEST_CASE(symboldatabase58); // #6985 (using namespace type lookup)
 
         TEST_CASE(enum1);
         TEST_CASE(enum2);
@@ -346,6 +346,9 @@ private:
         TEST_CASE(auto7);
         TEST_CASE(auto8);
         TEST_CASE(auto9); // #8044 (segmentation fault)
+        TEST_CASE(auto10); // #8020
+
+        TEST_CASE(unionWithConstructor);
     }
 
     void array() {
@@ -2498,10 +2501,6 @@ private:
               "};");
     }
 
-    void symboldatabase39() { // ticket #5120
-        check("struct V : { public case {} ; struct U : U  void { V *f (int x) (x) } }");
-    }
-
     void symboldatabase40() { // ticket #5153
         check("void f() {\n"
               "    try {  }\n"
@@ -2517,9 +2516,9 @@ private:
 
     void symboldatabase42() { // only put variables in variable list
         GET_SYMBOL_DB("void f() { extern int x(); }\n");
-        ASSERT(!!db);
+        ASSERT(db != nullptr);
         const Scope * const fscope = db ? db->findScopeByName("f") : nullptr;
-        ASSERT(!!fscope);
+        ASSERT(fscope != nullptr);
         ASSERT_EQUALS(0U, fscope ? fscope->varlist.size() : ~0U);  // "x" is not a variable
     }
 
@@ -2795,6 +2794,39 @@ private:
                 ASSERT((++it)->type == Scope::eFunction);
                 ASSERT((++it)->type == Scope::eIf);
                 ASSERT((++it)->type == Scope::eElse);
+            }
+        }
+    }
+
+    void symboldatabase58() { // #6985 (using namespace type lookup)
+        GET_SYMBOL_DB("namespace N2\n"
+                      "{\n"
+                      "class B { };\n"
+                      "}\n"
+                      "using namespace N2;\n"
+                      "class C {\n"
+                      "    class A : public B\n"
+                      "    {\n"
+                      "    };\n"
+                      "};");
+        ASSERT(db != nullptr);
+        if (db) {
+            ASSERT(db->typeList.size() == 3U);
+            if (db->typeList.size() == 3U) {
+                std::list<Type>::const_iterator it = db->typeList.begin();
+                const Type * classB = &(*it);
+                const Type * classC = &(*(++it));
+                const Type * classA = &(*(++it));
+                ASSERT(classA->name() == "A" && classB->name() == "B" && classC->name() == "C");
+                if (classA->name() == "A" && classB->name() == "B" && classC->name() == "C") {
+                    ASSERT(classA->derivedFrom.size() == 1U);
+                    if (classA->derivedFrom.size() == 1) {
+                        ASSERT(classA->derivedFrom[0].type != nullptr);
+                        if (classA->derivedFrom[0].type != nullptr) {
+                            ASSERT(classA->derivedFrom[0].type == classB);
+                        }
+                    }
+                }
             }
         }
     }
@@ -4600,8 +4632,8 @@ private:
 
         ASSERT(db && db->functionScopes.size() == 1);
         if (db && db->functionScopes.size() == 1) {
-            ASSERT(db->functionScopes[0]->function);
-            if (db->functionScopes[0]->function) {
+            ASSERT(db->functionScopes[0]->function != nullptr);
+            if (db->functionScopes[0]->function != nullptr) {
                 const Token *retDef = db->functionScopes[0]->function->retDef;
                 ASSERT_EQUALS("func", retDef ? retDef->str() : "");
             }
@@ -5204,6 +5236,39 @@ private:
                       "  }\n"
                       "}");
         ASSERT_EQUALS(true,  db != nullptr); // not null
+    }
+
+    void auto10() { // #8020
+        GET_SYMBOL_DB("void f() {\n"
+                      "    std::vector<int> ints(4);\n"
+                      "    auto iter = ints.begin() + (ints.size() - 1);\n"
+                      "}");
+        const Token *autotok = Token::findsimplematch(tokenizer.tokens(), "auto iter");
+
+        ASSERT(db && autotok && autotok->valueType());
+        if (db && autotok && autotok->valueType()) {
+            ASSERT_EQUALS(0, autotok->valueType()->constness);
+            ASSERT_EQUALS(0, autotok->valueType()->pointer);
+            ASSERT_EQUALS(ValueType::UNKNOWN_SIGN, autotok->valueType()->sign);
+            ASSERT_EQUALS(ValueType::ITERATOR, autotok->valueType()->type);
+        }
+    }
+
+    void unionWithConstructor() {
+        GET_SYMBOL_DB("union Fred {\n"
+                      "    Fred(int x) : i(x) { }\n"
+                      "    Fred(float x) : f(x) { }\n"
+                      "    int i;\n"
+                      "    float f;\n"
+                      "};");
+
+        ASSERT_EQUALS("", errout.str());
+
+        const Token *f = Token::findsimplematch(tokenizer.tokens(), "Fred ( int");
+        ASSERT_EQUALS(true, db && f && f->function() && f->function()->tokenDef->linenr() == 2);
+
+        f = Token::findsimplematch(tokenizer.tokens(), "Fred ( float");
+        ASSERT_EQUALS(true, db && f && f->function() && f->function()->tokenDef->linenr() == 3);
     }
 
 };

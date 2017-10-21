@@ -280,6 +280,7 @@ public:
     bool isUse(const std::string& functionName) const;
     bool isLeakIgnore(const std::string& functionName) const;
     bool isFunctionConst(const std::string& functionName, bool pure) const;
+    bool isFunctionConst(const Token *ftok) const;
 
     bool isboolargbad(const Token *ftok, int argnr) const {
         const ArgumentChecks *arg = getarg(ftok, argnr);
@@ -428,6 +429,11 @@ public:
         return (it2 != platform_types.end()) ? &(it2->second) : nullptr;
     }
 
+    /**
+     * Get function name for function call
+     */
+    std::string getFunctionName(const Token *ftok) const;
+
 private:
     // load a <function> xml node
     Error loadFunction(const tinyxml2::XMLElement * const node, const std::string &name, std::set<std::string> &unknown_elements);
@@ -509,7 +515,6 @@ private:
     const ArgumentChecks * getarg(const Token *ftok, int argnr) const;
 
     std::string getFunctionName(const Token *ftok, bool *error) const;
-    std::string getFunctionName(const Token *ftok) const;
 
     static const AllocFunc* getAllocDealloc(const std::map<std::string, AllocFunc> &data, const std::string &name) {
         const std::map<std::string, AllocFunc>::const_iterator it = data.find(name);

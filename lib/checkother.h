@@ -257,7 +257,7 @@ private:
     void unusedLabelError(const Token* tok, bool inSwitch);
     void unknownEvaluationOrder(const Token* tok);
     static bool isMovedParameterAllowedForInconclusiveFunction(const Token * tok);
-    void accessMovedError(const Token *tok, const std::string &varname, ValueFlow::Value::MoveKind moveKind, bool inconclusive);
+    void accessMovedError(const Token *tok, const std::string &varname, const ValueFlow::Value *value, bool inconclusive);
     void funcArgNamesDifferent(const std::string & functionName, size_t index, const Token* declaration, const Token* definition);
     void funcArgOrderDifferent(const std::string & functionName, const Token * declaration, const Token * definition, const std::vector<const Token*> & declarations, const std::vector<const Token*> & definitions);
 
@@ -275,8 +275,8 @@ private:
 
         //performance
         c.redundantCopyError(nullptr,  "varname");
-        c.redundantCopyError(nullptr,  0, "var");
-        c.redundantAssignmentError(nullptr,  0, "var", false);
+        c.redundantCopyError(nullptr, nullptr, "var");
+        c.redundantAssignmentError(nullptr, nullptr, "var", false);
 
         // style/warning
         c.checkComparisonFunctionIsAlwaysTrueOrFalseError(nullptr, "isless","varName",false);
@@ -288,15 +288,15 @@ private:
         c.unknownSignCharArrayIndexError(nullptr);
         c.charBitOpError(nullptr);
         c.variableScopeError(nullptr,  "varname");
-        c.redundantAssignmentInSwitchError(nullptr,  0, "var");
-        c.redundantCopyInSwitchError(nullptr,  0, "var");
+        c.redundantAssignmentInSwitchError(nullptr, nullptr, "var");
+        c.redundantCopyInSwitchError(nullptr, nullptr, "var");
         c.suspiciousCaseInSwitchError(nullptr,  "||");
         c.suspiciousEqualityComparisonError(nullptr);
         c.selfAssignmentError(nullptr,  "varname");
         c.clarifyCalculationError(nullptr,  "+");
         c.clarifyStatementError(nullptr);
-        c.duplicateBranchError(nullptr,  0);
-        c.duplicateExpressionError(nullptr,  0, "&&");
+        c.duplicateBranchError(nullptr, nullptr);
+        c.duplicateExpressionError(nullptr, nullptr, "&&");
         c.duplicateExpressionTernaryError(nullptr);
         c.duplicateBreakError(nullptr,  false);
         c.unreachableCodeError(nullptr,  false);
@@ -313,8 +313,7 @@ private:
         c.unusedLabelError(nullptr,  true);
         c.unusedLabelError(nullptr,  false);
         c.unknownEvaluationOrder(nullptr);
-        c.accessMovedError(nullptr, "v", ValueFlow::Value::MovedVariable, false);
-        c.accessMovedError(nullptr, "v", ValueFlow::Value::ForwardedVariable, false);
+        c.accessMovedError(nullptr, "v", nullptr, false);
         c.funcArgNamesDifferent("function", 1, nullptr, nullptr);
 
         std::vector<const Token *> nullvec;

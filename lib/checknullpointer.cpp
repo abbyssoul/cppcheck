@@ -84,7 +84,7 @@ void CheckNullPointer::parseFunctionCall(const Token &tok, std::list<const Token
     }
 
     if (Token::Match(&tok, "printf|sprintf|snprintf|fprintf|fnprintf|scanf|sscanf|fscanf|wprintf|swprintf|fwprintf|wscanf|swscanf|fwscanf")) {
-        const Token* argListTok = 0; // Points to first va_list argument
+        const Token* argListTok = nullptr; // Points to first va_list argument
         std::string formatString;
         bool scan = Token::Match(&tok, "scanf|sscanf|fscanf|wscanf|swscanf|fwscanf");
 
@@ -334,7 +334,7 @@ void CheckNullPointer::nullPointerByDeRefAndChec()
         if (!value)
             continue;
 
-        if (!printInconclusive && value->inconclusive)
+        if (!printInconclusive && value->isInconclusive())
             continue;
 
         // Is pointer used as function parameter?
@@ -350,7 +350,7 @@ void CheckNullPointer::nullPointerByDeRefAndChec()
             std::list<const Token *> varlist;
             parseFunctionCall(*ftok->previous(), varlist, &_settings->library);
             if (std::find(varlist.begin(), varlist.end(), tok) != varlist.end()) {
-                nullPointerError(tok, tok->str(), value, value->inconclusive);
+                nullPointerError(tok, tok->str(), value, value->isInconclusive());
             }
             continue;
         }
@@ -363,7 +363,7 @@ void CheckNullPointer::nullPointerByDeRefAndChec()
             continue;
         }
 
-        nullPointerError(tok, tok->str(), value, value->inconclusive);
+        nullPointerError(tok, tok->str(), value, value->isInconclusive());
     }
 }
 
@@ -387,7 +387,7 @@ void CheckNullPointer::nullConstantDereference()
     const std::size_t functions = symbolDatabase->functionScopes.size();
     for (std::size_t i = 0; i < functions; ++i) {
         const Scope * scope = symbolDatabase->functionScopes[i];
-        if (scope->function == 0 || !scope->function->hasBody()) // We only look for functions with a body
+        if (scope->function == nullptr || !scope->function->hasBody()) // We only look for functions with a body
             continue;
 
         const Token *tok = scope->classStart;
@@ -485,9 +485,9 @@ void CheckNullPointer::nullPointerError(const Token *tok, const std::string &var
     const ErrorPath errorPath = getErrorPath(tok, value, "Null pointer dereference");
 
     if (value->condition) {
-        reportError(errorPath, Severity::warning, "nullPointerRedundantCheck", errmsgcond, CWE476, inconclusive || value->inconclusive);
+        reportError(errorPath, Severity::warning, "nullPointerRedundantCheck", errmsgcond, CWE476, inconclusive || value->isInconclusive());
     } else if (value->defaultArg) {
-        reportError(errorPath, Severity::warning, "nullPointerDefaultArg", errmsgdefarg, CWE476, inconclusive || value->inconclusive);
+        reportError(errorPath, Severity::warning, "nullPointerDefaultArg", errmsgdefarg, CWE476, inconclusive || value->isInconclusive());
     } else {
         std::string errmsg;
         errmsg = std::string(value->isKnown() ? "Null" : "Possible null") + " pointer dereference";
@@ -498,7 +498,7 @@ void CheckNullPointer::nullPointerError(const Token *tok, const std::string &var
                     value->isKnown() ? Severity::error : Severity::warning,
                     "nullPointer",
                     errmsg,
-                    CWE476, inconclusive || value->inconclusive);
+                    CWE476, inconclusive || value->isInconclusive());
     }
 }
 
@@ -518,7 +518,7 @@ void CheckNullPointer::arithmetic()
             const ValueFlow::Value *value = tok->astOperand1()->getValue(0);
             if (!value)
                 continue;
-            if (!_settings->inconclusive && value->inconclusive)
+            if (!_settings->inconclusive && value->isInconclusive())
                 continue;
             if (value->condition && !_settings->isEnabled(Settings::WARNING))
                 continue;
@@ -545,6 +545,6 @@ void CheckNullPointer::arithmeticError(const Token *tok, const ValueFlow::Value 
                 (value && value->condition) ? "nullPointerArithmeticRedundantCheck" : "nullPointerArithmetic",
                 errmsg,
                 CWE682, // unknown - pointer overflow
-                value && value->inconclusive);
+                value && value->isInconclusive());
 }
 

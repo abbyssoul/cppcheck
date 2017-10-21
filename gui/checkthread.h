@@ -44,13 +44,29 @@ public:
     *
     * @param settings settings for cppcheck
     */
-    void Check(const Settings &settings);
+    void check(const Settings &settings);
 
     /**
     * @brief Run whole program analysis
     * @param files    All files
     */
-    void AnalyseWholeProgram(const QStringList &files);
+    void analyseWholeProgram(const QStringList &files);
+
+    void setAddonsAndTools(const QStringList &addonsAndTools) {
+        mAddonsAndTools = addonsAndTools;
+    }
+
+    void setDataDir(const QString &dataDir) {
+        mDataDir = dataDir;
+    }
+
+    void setClangIncludePaths(const QStringList &s) {
+        mClangIncludePaths = s;
+    }
+
+    void setSuppressions(const QStringList s) {
+        mSuppressions = s;
+    }
 
     /**
     * @brief method that is run in a thread
@@ -60,6 +76,29 @@ public:
 
     void stop();
 
+    /**
+     * Determine command to run clang
+     * \return Command to run clang, empty if it is not found
+     */
+    static QString clangCmd();
+
+    /**
+     * Determine command to run clang-tidy
+     * \return Command to run clang-tidy, empty if it is not found
+     */
+    static QString clangTidyCmd();
+
+    /**
+     * Determine command to run python
+     * \return Command to run python, empty if it is not found
+     */
+    static QString pythonCmd();
+
+    /**
+     * Look for addon and return path
+     * \return path to addon if found, empty if it is not found
+     */
+    static QString getAddonFilePath(const QString &dataDir, const QString &addonFile);
 
 signals:
 
@@ -67,9 +106,9 @@ signals:
     * @brief cpp checking is done
     *
     */
-    void Done();
+    void done();
 
-    void FileChecked(const QString &file);
+    void fileChecked(const QString &file);
 protected:
 
     /**
@@ -94,13 +133,21 @@ protected:
     ThreadResult &mResult;
     /**
     * @brief Cppcheck itself
-    *
     */
     CppCheck mCppcheck;
 
 private:
+    void runAddonsAndTools(const ImportProject::FileSettings *fileSettings, const QString &fileName);
+
+    void parseAddonErrors(QString err, QString tool);
+    void parseClangErrors(const QString &tool, const QString &file0, QString err);
+
     QStringList mFiles;
     bool mAnalyseWholeProgram;
+    QStringList mAddonsAndTools;
+    QString mDataDir;
+    QStringList mClangIncludePaths;
+    QStringList mSuppressions;
 };
 /// @}
 #endif // CHECKTHREAD_H

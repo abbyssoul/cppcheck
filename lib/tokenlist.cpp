@@ -38,8 +38,8 @@ static const unsigned int AST_MAX_DEPTH = 50U;
 
 
 TokenList::TokenList(const Settings* settings) :
-    _front(0),
-    _back(0),
+    _front(nullptr),
+    _back(nullptr),
     _settings(settings),
     _isC(false),
     _isCPP(false)
@@ -67,8 +67,8 @@ const std::string& TokenList::getSourceFilePath() const
 void TokenList::deallocateTokens()
 {
     deleteTokens(_front);
-    _front = 0;
-    _back = 0;
+    _front = nullptr;
+    _back = nullptr;
     _files.clear();
 }
 
@@ -251,6 +251,7 @@ void TokenList::createTokens(const simplecpp::TokenList *tokenList)
             // TODO: It would be better if TokenList didn't simplify hexadecimal numbers
             std::string suffix;
             if (isHex &&
+                _settings &&
                 str.size() == (2 + _settings->int_bit / 4) &&
                 (str[2] >= '8') &&  // includes A-F and a-f
                 MathLib::getSuffix(str).empty()
@@ -367,11 +368,12 @@ static bool iscast(const Token *tok)
         while (tok2->link() && Token::Match(tok2, "(|[|<"))
             tok2 = tok2->link()->next();
 
-        if (tok2->str() == ")")
-            return type || tok2->strAt(-1) == "*" || Token::Match(tok2, ") &|~") ||
+        if (tok2->str() == ")") {
+            return type || tok2->strAt(-1) == "*" || Token::simpleMatch(tok2, ") ~") ||
                    (Token::Match(tok2, ") %any%") &&
                     !tok2->next()->isOp() &&
                     !Token::Match(tok2->next(), "[[]);,?:.]"));
+        }
         if (!Token::Match(tok2, "%name%|*|&|::"))
             return false;
 
@@ -387,14 +389,18 @@ static Token * findCppTypeInitPar(Token *tok)
 {
     if (!tok || !Token::Match(tok->previous(), "[,()] %name%"))
         return nullptr;
+    bool istype = false;
     while (Token::Match(tok, "%name%|::|<")) {
         if (tok->str() == "<") {
             tok = tok->link();
             if (!tok)
                 return nullptr;
         }
+        istype |= tok->isStandardType();
         tok = tok->next();
     }
+    if (!istype)
+        return nullptr;
     if (!Token::Match(tok, "[*&]"))
         return nullptr;
     while (Token::Match(tok, "[*&]"))
@@ -891,7 +897,7 @@ static void compileAssignTernary(Token *&tok, AST_state& state)
             //       "The expression in the middle of the conditional operator (between ? and :) is parsed as if parenthesized: its precedence relative to ?: is ignored."
             // Hence, we rely on Tokenizer::prepareTernaryOpForAST() to add such parentheses where necessary.
             if (tok->strAt(1) == ":") {
-                state.op.push(0);
+                state.op.push(nullptr);
             }
             const unsigned int assign = state.assign;
             state.assign = 0U;
@@ -1103,7 +1109,7 @@ static Token * createAstAtToken(Token *tok, bool cpp)
 
         createAstAtTokenInner(tok1->next(), endToken, cpp);
 
-        return endToken ? endToken->previous() : nullptr;
+        return endToken->previous();
     }
 
     return tok;
@@ -1123,11 +1129,11 @@ void TokenList::validateAst() const
     for (const Token *tok = _front; tok; tok = tok->next()) {
         // Syntax error if binary operator only has 1 operand
         if ((tok->isAssignmentOp() || tok->isComparisonOp() || Token::Match(tok,"[|^/%]")) && tok->astOperand1() && !tok->astOperand2())
-            throw InternalError(tok, "Syntax Error: AST broken, binary operator has only one operand.", InternalError::SYNTAX);
+            throw InternalError(tok, "Syntax Error: AST broken, binary operator has only one operand.", InternalError::AST);
 
         // Syntax error if we encounter "?" with operand2 that is not ":"
         if (tok->astOperand2() && tok->str() == "?" && tok->astOperand2()->str() != ":")
-            throw InternalError(tok, "Syntax Error: AST broken, ternary operator lacks ':'.", InternalError::SYNTAX);
+            throw InternalError(tok, "Syntax Error: AST broken, ternary operator lacks ':'.", InternalError::AST);
 
         // Check for endless recursion
         const Token* parent=tok->astParent();
@@ -1138,7 +1144,7 @@ void TokenList::validateAst() const
                 if (safeAstTokens.find(parent) != safeAstTokens.end())
                     break;
                 if (astTokens.find(parent) != astTokens.end())
-                    throw InternalError(tok, "AST broken: endless recursion from '" + tok->str() + "'", InternalError::SYNTAX);
+                    throw InternalError(tok, "AST broken: endless recursion from '" + tok->str() + "'", InternalError::AST);
                 astTokens.insert(parent);
             } while ((parent = parent->astParent()) != nullptr);
             safeAstTokens.insert(astTokens.begin(), astTokens.end());
@@ -1167,3 +1173,65 @@ bool TokenList::validateToken(const Token* tok) const
     }
     return false;
 }
+
+void TokenList::simplifyStdType()
+{
+    for (Token *tok = front(); tok; tok = tok->next()) {
+        if (Token::Match(tok, "char|short|int|long|unsigned|signed|double|float") || (_settings->standards.c >= Standards::C99 && Token::Match(tok, "complex|_Complex"))) {
+            bool isFloat= false;
+            bool isSigned = false;
+            bool isUnsigned = false;
+            bool isComplex = false;
+            unsigned int countLong = 0;
+            Token* typeSpec = nullptr;
+
+            Token* tok2 = tok;
+            for (; tok2->next(); tok2 = tok2->next()) {
+                if (tok2->str() == "long") {
+                    countLong++;
+                    if (!isFloat)
+                        typeSpec = tok2;
+                } else if (tok2->str() == "short") {
+                    typeSpec = tok2;
+                } else if (tok2->str() == "unsigned")
+                    isUnsigned = true;
+                else if (tok2->str() == "signed")
+                    isSigned = true;
+                else if (Token::Match(tok2, "float|double")) {
+                    isFloat = true;
+                    typeSpec = tok2;
+                } else if (_settings->standards.c >= Standards::C99 && Token::Match(tok2, "complex|_Complex"))
+                    isComplex = !isFloat || tok2->str() == "_Complex" || Token::Match(tok2->next(), "*|&|%name%"); // Ensure that "complex" is not the variables name
+                else if (Token::Match(tok2, "char|int")) {
+                    if (!typeSpec)
+                        typeSpec = tok2;
+                } else
+                    break;
+            }
+
+            if (!typeSpec) { // unsigned i; or similar declaration
+                if (!isComplex) { // Ensure that "complex" is not the variables name
+                    tok->str("int");
+                    tok->isSigned(isSigned);
+                    tok->isUnsigned(isUnsigned);
+                }
+            } else {
+                typeSpec->isLong(typeSpec->isLong() || (isFloat && countLong == 1) || countLong > 1);
+                typeSpec->isComplex(typeSpec->isComplex() || (isFloat && isComplex));
+                typeSpec->isSigned(typeSpec->isSigned() || isSigned);
+                typeSpec->isUnsigned(typeSpec->isUnsigned() || isUnsigned);
+
+                // Remove specifiers
+                const Token* tok3 = tok->previous();
+                tok2 = tok2->previous();
+                while (tok3 != tok2) {
+                    if (tok2 != typeSpec &&
+                        (isComplex || !Token::Match(tok2, "complex|_Complex")))  // Ensure that "complex" is not the variables name
+                        tok2->deleteThis();
+                    tok2 = tok2->previous();
+                }
+            }
+        }
+    }
+}
+

@@ -60,6 +60,7 @@ private:
 
         TEST_CASE(STLSize);
         TEST_CASE(STLSizeNoErr);
+        TEST_CASE(negativeIndex);
         TEST_CASE(erase1);
         TEST_CASE(erase2);
         TEST_CASE(erase3);
@@ -168,6 +169,15 @@ private:
               "    list<int> l1;\n"
               "    list<int> l2;\n"
               "    for (list<int>::iterator it = l1.begin(); it != l2.end(); ++it)\n"
+              "    { }\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:5]: (error) Same iterator is used with different containers 'l1' and 'l2'.\n", errout.str());
+
+        check("void f()\n"
+              "{\n"
+              "    list<int> l1;\n"
+              "    list<int> l2;\n"
+              "    for (list<int>::iterator it = l1.begin(); l2.end() != it; ++it)\n"
               "    { }\n"
               "}");
         ASSERT_EQUALS("[test.cpp:5]: (error) Same iterator is used with different containers 'l1' and 'l2'.\n", errout.str());
@@ -442,6 +452,14 @@ private:
               "}");
         ASSERT_EQUALS("[test.cpp:5]: (error) Same iterator is used with different containers 'map1' and 'map2'.\n", errout.str());
 
+        check("void f() {\n"
+              "    std::map<int, int> map1;\n"
+              "    std::map<int, int> map2;\n"
+              "    std::map<int, int>::const_iterator it = map1.find(123);\n"
+              "    if (map2.end() == it) { }"
+              "}");
+        ASSERT_EQUALS("[test.cpp:5]: (error) Same iterator is used with different containers 'map1' and 'map2'.\n", errout.str());
+
         check("void f(std::string &s) {\n"
               "    int pos = s.find(x);\n"
               "    s.erase(pos);\n"
@@ -457,7 +475,7 @@ private:
               "    std::vector<int>::const_iterator it;\n"
               "    it = a.begin();\n"
               "    while (it!=a.end())\n"
-              "        v++it;\n"
+              "        ++it;\n"
               "    it = t.begin();\n"
               "    while (it!=a.end())\n"
               "        ++it;\n"
@@ -703,7 +721,12 @@ private:
         }
     }
 
-
+    void negativeIndex() {
+        check("void f(const std::vector<int> &v) {\n"
+              "  v[-11] = 123;\n"
+              "}");
+        ASSERT_EQUALS("[test.cpp:2]: (error) Array index -11 is out of bounds.\n", errout.str());
+    }
 
 
 
@@ -890,6 +913,19 @@ private:
               "            continue;\n"
               "        }\n"
               "    }\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+
+        check("void f(std::map<uint32, uint32> my_map) {\n" // #7365
+              "  std::map<uint32, uint32>::iterator itr = my_map.begin();\n"
+              "  switch (itr->first) {\n"
+              "  case 0:\n"
+              "    my_map.erase(itr);\n"
+              "    continue;\n"
+              "  case 1:\n"
+              "    itr->second = 1;\n"
+              "    break;\n"
+              "  }\n"
               "}");
         ASSERT_EQUALS("", errout.str());
     }
@@ -2191,7 +2227,7 @@ private:
 
         check("const char* foo() {\n"
               "    static std::string text;\n"
-              "    text = \"hello world\n\";\n"
+              "    text = \"hello world\\n\";\n"
               "    return text.c_str();\n"
               "}");
         ASSERT_EQUALS("", errout.str()); // #3427
@@ -2962,6 +2998,22 @@ private:
               "}", true);
         ASSERT_EQUALS("[test.cpp:3]: (style, inconclusive) Reading from empty STL container 'v'\n", errout.str());
 
+        // #7449 - nonlocal vector
+        check("std::vector<int> v;\n"
+              "void f() {\n"
+              "  v.clear();\n"
+              "  dostuff()\n"
+              "  if (v.empty()) { }\n"
+              "}", true);
+        ASSERT_EQUALS("", errout.str());
+
+        check("std::vector<int> v;\n"
+              "void f() {\n"
+              "  v.clear();\n"
+              "  if (v.empty()) { }\n"
+              "}", true);
+        ASSERT_EQUALS("[test.cpp:4]: (style, inconclusive) Reading from empty STL container 'v'\n", errout.str());
+
         // #6663
         check("void foo() {\n"
               "    std::set<int> container;\n"
@@ -3035,6 +3087,13 @@ private:
               "    str = \"A\";\n"
               "    l();\n"
               "}");
+        ASSERT_EQUALS("", errout.str());
+
+        check("void f(const std::vector<std::string> &v) {\n"
+              "  for (const std::string& s : v) {\n"
+              "    if (s.find(x) != string::npos) {}\n"
+              "  }\n"
+              "}", true);
         ASSERT_EQUALS("", errout.str());
     }
 };

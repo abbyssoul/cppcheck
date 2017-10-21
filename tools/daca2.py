@@ -70,8 +70,6 @@ def handleRemoveReadonly(func, path, exc):
         # Is the error an access error ?
         os.chmod(path, stat.S_IWUSR)
         func(path)
-    else:
-        raise
 
 
 def removeAllExceptResults():
@@ -109,6 +107,9 @@ def removeLargeFiles(path):
         if os.path.isdir(g):
             # Remove test code
             if g.endswith('/testsuite') or g.endswith('/clang/INPUTS'):
+                shutil.rmtree(g, onerror=handleRemoveReadonly)
+            # Remove docs and examples ... that might be garbage
+            elif g.endswith('/doc') or g.endswith('/examples'):
                 shutil.rmtree(g, onerror=handleRemoveReadonly)
             else:
                 removeLargeFiles(g + '/')

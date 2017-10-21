@@ -17,10 +17,9 @@
  */
 
 
+#include "mathlib.h"
 #include "errorlogger.h"
 #include "utils.h"
-
-#include "mathlib.h"
 
 #include <cctype>
 #include <cmath>
@@ -39,6 +38,8 @@
 #define ISNAN(x)      (std::isnan(x))
 #endif
 
+const int MathLib::bigint_bits = 64;
+
 MathLib::value::value(const std::string &s) :
     intValue(0), doubleValue(0), isUnsigned(false)
 {
@@ -49,7 +50,7 @@ MathLib::value::value(const std::string &s) :
     }
 
     if (!MathLib::isInt(s))
-        throw InternalError(0, "Invalid value: " + s);
+        throw InternalError(nullptr, "Invalid value: " + s);
 
     type = MathLib::value::INT;
     intValue = MathLib::toLongNumber(s);
@@ -147,9 +148,9 @@ MathLib::value MathLib::value::calc(char op, const MathLib::value &v1, const Mat
         case '&':
         case '|':
         case '^':
-            throw InternalError(0, "Invalid calculation");
+            throw InternalError(nullptr, "Invalid calculation");
         default:
-            throw InternalError(0, "Unhandled calculation");
+            throw InternalError(nullptr, "Unhandled calculation");
         }
     } else if (temp.isUnsigned) {
         switch (op) {
@@ -164,14 +165,14 @@ MathLib::value MathLib::value::calc(char op, const MathLib::value &v1, const Mat
             break;
         case '/':
             if (v2.intValue == 0)
-                throw InternalError(0, "Internal Error: Division by zero");
+                throw InternalError(nullptr, "Internal Error: Division by zero");
             if (v1.intValue == std::numeric_limits<bigint>::min() && std::abs(v2.intValue)<=1)
-                throw InternalError(0, "Internal Error: Division overflow");
+                throw InternalError(nullptr, "Internal Error: Division overflow");
             temp.intValue /= (unsigned long long)v2.intValue;
             break;
         case '%':
             if (v2.intValue == 0)
-                throw InternalError(0, "Internal Error: Division by zero");
+                throw InternalError(nullptr, "Internal Error: Division by zero");
             temp.intValue %= (unsigned long long)v2.intValue;
             break;
         case '&':
@@ -184,7 +185,7 @@ MathLib::value MathLib::value::calc(char op, const MathLib::value &v1, const Mat
             temp.intValue ^= (unsigned long long)v2.intValue;
             break;
         default:
-            throw InternalError(0, "Unhandled calculation");
+            throw InternalError(nullptr, "Unhandled calculation");
         }
     } else {
         switch (op) {
@@ -199,14 +200,14 @@ MathLib::value MathLib::value::calc(char op, const MathLib::value &v1, const Mat
             break;
         case '/':
             if (v2.intValue == 0)
-                throw InternalError(0, "Internal Error: Division by zero");
+                throw InternalError(nullptr, "Internal Error: Division by zero");
             if (v1.intValue == std::numeric_limits<bigint>::min() && std::abs(v2.intValue)<=1)
-                throw InternalError(0, "Internal Error: Division overflow");
+                throw InternalError(nullptr, "Internal Error: Division overflow");
             temp.intValue /= v2.intValue;
             break;
         case '%':
             if (v2.intValue == 0)
-                throw InternalError(0, "Internal Error: Division by zero");
+                throw InternalError(nullptr, "Internal Error: Division by zero");
             temp.intValue %= v2.intValue;
             break;
         case '&':
@@ -219,7 +220,7 @@ MathLib::value MathLib::value::calc(char op, const MathLib::value &v1, const Mat
             temp.intValue ^= v2.intValue;
             break;
         default:
-            throw InternalError(0, "Unhandled calculation");
+            throw InternalError(nullptr, "Unhandled calculation");
         }
     }
     return temp;
@@ -267,7 +268,7 @@ MathLib::value MathLib::value::add(int v) const
 MathLib::value MathLib::value::shiftLeft(const MathLib::value &v) const
 {
     if (!isInt() || !v.isInt())
-        throw InternalError(0, "Shift operand is not integer");
+        throw InternalError(nullptr, "Shift operand is not integer");
     MathLib::value ret(*this);
     ret.intValue <<= v.intValue;
     return ret;
@@ -276,7 +277,7 @@ MathLib::value MathLib::value::shiftLeft(const MathLib::value &v) const
 MathLib::value MathLib::value::shiftRight(const MathLib::value &v) const
 {
     if (!isInt() || !v.isInt())
-        throw InternalError(0, "Shift operand is not integer");
+        throw InternalError(nullptr, "Shift operand is not integer");
     MathLib::value ret(*this);
     ret.intValue >>= v.intValue;
     return ret;
@@ -358,7 +359,7 @@ MathLib::bigint MathLib::characterLiteralToLongNumber(const std::string& str)
 
     // '\xF6'
     if (str.size() == 4 && str.compare(0,2,"\\x")==0 && std::isxdigit(str[2]) && std::isxdigit(str[3])) {
-        return std::strtoul(str.substr(2).c_str(), NULL, 16);
+        return std::strtoul(str.substr(2).c_str(), nullptr, 16);
     }
 
     // '\123'
@@ -386,14 +387,14 @@ std::string MathLib::normalizeCharacterLiteral(const std::string& iLiteral)
         }
         ++idx;
         if (idx == iLiteralLen) {
-            throw InternalError(0, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
+            throw InternalError(nullptr, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
         }
         switch (iLiteral[idx]) {
         case 'x':
             // Hexa-decimal number: skip \x and interpret the next two characters
         {
             if (++idx == iLiteralLen)
-                throw InternalError(0, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
+                throw InternalError(nullptr, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
             std::string tempBuf;
             tempBuf.push_back(iLiteral[idx]);
             if (++idx != iLiteralLen)
@@ -405,7 +406,7 @@ std::string MathLib::normalizeCharacterLiteral(const std::string& iLiteral)
         case 'U':
             // Unicode string; just skip the \u or \U
             if (idx + 1 == iLiteralLen)
-                throw InternalError(0, "Internal Error. MathLib::characterLiteralToLongNumber: Unhandled char constant '" + iLiteral + "'.");
+                throw InternalError(nullptr, "Internal Error. MathLib::characterLiteralToLongNumber: Unhandled char constant '" + iLiteral + "'.");
             continue;
         }
         // Single digit octal number
@@ -452,13 +453,13 @@ std::string MathLib::normalizeCharacterLiteral(const std::string& iLiteral)
                 normalizedLiteral.push_back(iLiteral[idx]);
                 break;
             default:
-                throw InternalError(0, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
+                throw InternalError(nullptr, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
             }
             continue;
         }
         // 2-3 digit octal number
         if (!MathLib::isOctalDigit(iLiteral[idx]))
-            throw InternalError(0, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
+            throw InternalError(nullptr, "Internal Error. MathLib::normalizeCharacterLiteral: Unhandled char constant '" + iLiteral + "'.");
         std::string tempBuf;
         tempBuf.push_back(iLiteral[idx]);
         ++idx;
@@ -528,7 +529,14 @@ MathLib::bigint MathLib::toLongNumber(const std::string & str)
         return characterLiteralToLongNumber(str.substr(1,str.size()-2));
     }
 
-    bigint ret = 0;
+    if (str[0] == '-') {
+        bigint ret = 0;
+        std::istringstream istr(str);
+        istr >> ret;
+        return ret;
+    }
+
+    biguint ret = 0;
     std::istringstream istr(str);
     istr >> ret;
     return ret;
@@ -547,7 +555,7 @@ double MathLib::toDoubleNumber(const std::string &str)
 #ifdef __clang__
     if (isFloat(str)) // Workaround libc++ bug at http://llvm.org/bugs/show_bug.cgi?id=17782
         // TODO : handle locale
-        return std::strtod(str.c_str(), 0);
+        return std::strtod(str.c_str(), nullptr);
 #endif
     // otherwise, convert to double
     std::istringstream istr(str);
@@ -1129,7 +1137,7 @@ std::string MathLib::incdec(const std::string & var, const std::string & op)
         return MathLib::subtract(var, "1");
 #endif
 
-    throw InternalError(0, std::string("Unexpected operation '") + op + "' in MathLib::incdec(). Please report this to Cppcheck developers.");
+    throw InternalError(nullptr, std::string("Unexpected operation '") + op + "' in MathLib::incdec(). Please report this to Cppcheck developers.");
 }
 
 std::string MathLib::divide(const std::string &first, const std::string &second)
@@ -1141,9 +1149,9 @@ std::string MathLib::divide(const std::string &first, const std::string &second)
         const bigint a = toLongNumber(first);
         const bigint b = toLongNumber(second);
         if (b == 0)
-            throw InternalError(0, "Internal Error: Division by zero");
+            throw InternalError(nullptr, "Internal Error: Division by zero");
         if (a == std::numeric_limits<bigint>::min() && std::abs(b)<=1)
-            throw InternalError(0, "Internal Error: Division overflow");
+            throw InternalError(nullptr, "Internal Error: Division overflow");
         return toString(toLongNumber(first) / b) + intsuffix(first, second);
     } else if (isNullValue(second)) {
         if (isNullValue(first))
@@ -1174,7 +1182,7 @@ std::string MathLib::mod(const std::string &first, const std::string &second)
     if (MathLib::isInt(first) && MathLib::isInt(second)) {
         const bigint b = toLongNumber(second);
         if (b == 0)
-            throw InternalError(0, "Internal Error: Division by zero");
+            throw InternalError(nullptr, "Internal Error: Division by zero");
         return toString(toLongNumber(first) % b) + intsuffix(first, second);
     }
     return toString(std::fmod(toDoubleNumber(first),toDoubleNumber(second)));
@@ -1209,7 +1217,7 @@ std::string MathLib::calculate(const std::string &first, const std::string &seco
         return MathLib::toString(MathLib::toLongNumber(first) ^ MathLib::toLongNumber(second)) + intsuffix(first,second);
 
     default:
-        throw InternalError(0, std::string("Unexpected action '") + action + "' in MathLib::calculate(). Please report this to Cppcheck developers.");
+        throw InternalError(nullptr, std::string("Unexpected action '") + action + "' in MathLib::calculate(). Please report this to Cppcheck developers.");
     }
 }
 

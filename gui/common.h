@@ -24,6 +24,8 @@
 /// @addtogroup GUI
 /// @{
 
+#define CLANG_ANALYZER   "clang-analyzer"
+#define CLANG_TIDY       "clang-tidy"
 
 /**
 * QSetting value names
@@ -58,6 +60,7 @@
 // Standards support
 #define SETTINGS_STD_CPP03              "Platform CPP03"
 #define SETTINGS_STD_CPP11              "Platform CPP11"
+#define SETTINGS_STD_CPP14              "Platform CPP14"
 #define SETTINGS_STD_C89                "Platform C89"
 #define SETTINGS_STD_C99                "Platform C99"
 #define SETTINGS_STD_C11                "Platform C11"
@@ -80,11 +83,15 @@
 #define SETTINGS_APPLICATION_DEFAULT    "Default Application"
 #define SETTINGS_LANGUAGE               "Application language"
 #define SETTINGS_GLOBAL_INCLUDE_PATHS   "Global include paths"
+#define SETTINGS_PYTHON_PATH            "Python path"
+#define SETTINGS_CLANG_PATH             "Clang path"
+#define SETTINGS_VS_INCLUDE_PATHS       "VS include paths"
 #define SETTINGS_INLINE_SUPPRESSIONS    "Inline suppressions"
 #define SETTINGS_INCONCLUSIVE_ERRORS    "Inconclusive errors"
 #define SETTINGS_MRU_PROJECTS           "MRU Projects"
 #define SETTINGS_SHOW_ERROR_ID          "Show error Id"
 #define SETTINGS_SHOW_STATISTICS        "Show statistics"
+#define SETTINGS_OPEN_PROJECT           "Open Project"
 
 // The maximum value for the progress bar
 #define PROGRESS_MAX                    1024.0
@@ -106,7 +113,7 @@
  * @param type Type of path to obtain
  * @return Best path fo provided type
  */
-QString GetPath(const QString &type);
+QString getPath(const QString &type);
 
 /**
  * @brief Stores last used path of specified type
@@ -114,7 +121,7 @@ QString GetPath(const QString &type);
  * @param type Type of the path to store
  * @param value Path to store
  */
-void SetPath(const QString &type, const QString &value);
+void setPath(const QString &type, const QString &value);
 
 /// @}
 #endif

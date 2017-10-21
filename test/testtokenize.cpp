@@ -203,6 +203,7 @@ private:
         TEST_CASE(simplifyKnownVariablesFloat);    // #2454 - float variable
         TEST_CASE(simplifyKnownVariablesClassMember);  // #2815 - value of class member may be changed by function call
         TEST_CASE(simplifyKnownVariablesFunctionCalls); // Function calls (don't assume pass by reference)
+        TEST_CASE(simplifyKnownVariablesGlobalVars);
         TEST_CASE(simplifyKnownVariablesReturn);   // 3500 - return
         TEST_CASE(simplifyKnownVariablesPointerAliasFunctionCall); // #7440
         TEST_CASE(simplifyExternC);
@@ -490,7 +491,7 @@ private:
         std::istringstream istr2(debugwarnings.c_str());
         std::string line;
         while (std::getline(istr2,line)) {
-            if (line.find("ValueFlow") == std::string::npos)
+            if (line.find("valueflow.cpp") == std::string::npos)
                 errout << line << "\n";
         }
 
@@ -520,7 +521,7 @@ private:
         std::istringstream istr2(debugwarnings.c_str());
         std::string line;
         while (std::getline(istr2,line)) {
-            if (line.find("ValueFlow") == std::string::npos)
+            if (line.find("valueflow.cpp") == std::string::npos)
                 errout << line << "\n";
         }
 
@@ -1340,6 +1341,17 @@ private:
                                     "while ( -- d > 0 ) ;\n"
                                     "return 0 ;\n"
                                     "}";
+            ASSERT_EQUALS(result, tokenizeAndStringify(code, true));
+        }
+
+        {
+            // #8148 - while inside the do-while body
+            const char code[] = "void foo() {\n"
+                                "    do { while (x) f(); } while (y);\n"
+                                "}";
+            const char result[] = "void foo ( ) {\n"
+                                  "do { while ( x ) { f ( ) ; } } while ( y ) ;\n"
+                                  "}";
             ASSERT_EQUALS(result, tokenizeAndStringify(code, true));
         }
     }
@@ -2947,6 +2959,16 @@ private:
             const char expected[] = "void a ( int & x ) ; void b ( ) { int x ; x = 123 ; a ( x ) ; }";
             ASSERT_EQUALS(expected, tokenizeAndStringify(code,true));
         }
+    }
+
+    void simplifyKnownVariablesGlobalVars() {
+        // #8054
+        const char code[] = "static int x;"
+                            "void f() {"
+                            "    x = 123;"
+                            "    while (!x) { dostuff(); }"
+                            "}";
+        ASSERT_EQUALS("static int x ; void f ( ) { x = 123 ; while ( ! x ) { dostuff ( ) ; } }", tokenizeAndStringify(code,true));
     }
 
     void simplifyKnownVariablesReturn() {
@@ -4605,6 +4627,19 @@ private:
             ASSERT_EQUALS(true, tok1->link() == tok2);
             ASSERT_EQUALS(true, tok2->link() == tok1);
         }
+
+        {
+            // #8115
+            const char code[] = "void Test(C<int> && c);";
+            errout.str("");
+            Tokenizer tokenizer(&settings0, this);
+            std::istringstream istr(code);
+            tokenizer.tokenize(istr, "test.cpp");
+            const Token *tok1 = Token::findsimplematch(tokenizer.tokens(), "<");
+            const Token *tok2 = tok1->tokAt(2);
+            ASSERT_EQUALS(true, tok1->link() == tok2);
+            ASSERT_EQUALS(true, tok2->link() == tok1);
+        }
     }
 
     void simplifyString() {
@@ -4675,6 +4710,10 @@ private:
         // Pointer to standard type
         ASSERT_EQUALS("char buf [ 100 ] ; readlink ( path , buf , 99 ) ;",
                       tokenizeAndStringify("char buf[100] ; readlink(path, &buf[0], 99);",
+                                           false, true, Settings::Native, "test.c"));
+
+        ASSERT_EQUALS("void foo ( char * c ) { if ( 1 == ( 1 & c [ 0 ] ) ) { } }",
+                      tokenizeAndStringify("void foo(char *c) { if (1==(1 & c[0])) {} }",
                                            false, true, Settings::Native, "test.c"));
 
         // Simplification of unknown type - C only
@@ -5544,6 +5583,33 @@ private:
                                          "void search ( ) { }\n"
                                          "} ;";
         ASSERT_EQUALS(expected14, tokenizeAndStringify(code14, false));
+
+        // Ticket #8091
+        ASSERT_EQUALS("enum Anonymous0 { string } ;",
+                      tokenizeAndStringify("using namespace std; "
+                                           "enum { string };"));
+        ASSERT_EQUALS("enum Type { string } ;",
+                      tokenizeAndStringify("using namespace std; "
+                                           "enum Type { string } ;"));
+        ASSERT_EQUALS("enum class Type { string } ;",
+                      tokenizeAndStringify("using namespace std; "
+                                           "enum class Type { string } ;"));
+        ASSERT_EQUALS("enum struct Type { string } ;",
+                      tokenizeAndStringify("using namespace std; "
+                                           "enum struct Type { string } ;"));
+        ASSERT_EQUALS("enum struct Type : int { f = 0 , string } ;",
+                      tokenizeAndStringify("using namespace std; "
+                                           "enum struct Type : int { f = 0 , string } ;"));
+        ASSERT_EQUALS("enum Type { a , b } ; void foo ( enum Type , std :: string ) { }",
+                      tokenizeAndStringify("using namespace std; "
+                                           "enum Type { a , b } ; void foo ( enum Type , string) {}"));
+        ASSERT_EQUALS("struct T { } ; enum struct Type : int { f = 0 , string } ;",
+                      tokenizeAndStringify("using namespace std; "
+                                           "struct T { typedef int type; } ; "
+                                           "enum struct Type : T :: type { f = 0 , string } ;"));
+        // Handle garbage enum code "well"
+        ASSERT_EQUALS("enum E : int ; void foo ( ) { std :: string s ; }",
+                      tokenizeAndStringify("using namespace std; enum E : int ; void foo ( ) { string s ; }"));
     }
 
     void microsoftMemory() {
@@ -5886,7 +5952,7 @@ private:
 
     void simplifyOperatorName8() { // ticket #5706
         const char code1[] = "value_type * operator += (int) noexcept ;";
-        const char result1[] = "value_type * operator+= ( int ) noexcept ;";
+        const char result1[] = "value_type * operator+= ( int ) noexcept ( true ) ;";
         ASSERT_EQUALS(result1, tokenizeAndStringify(code1,false));
 
         const char code2[] = "value_type * operator += (int) noexcept ( true ) ;";
@@ -5908,6 +5974,11 @@ private:
         const char code6[] = "value_type * operator += (int) const throw ( ) ;";
         const char result6[] = "value_type * operator+= ( int ) const throw ( ) ;";
         ASSERT_EQUALS(result6, tokenizeAndStringify(code6,false));
+
+        const char code7[] = "value_type * operator += (int) const noexcept ( false ) ;";
+        const char result7[] = "value_type * operator+= ( int ) const noexcept ( false ) ;";
+        ASSERT_EQUALS(result7, tokenizeAndStringify(code7,false));
+
     }
 
     void simplifyOperatorName9() { // Ticket #5709
@@ -7846,12 +7917,12 @@ private:
     }
 
     void simplifyCaseRange() {
-        ASSERT_EQUALS("void f ( ) { case 1 : case 2 : case 3 : case 4 : ; }", tokenizeAndStringify("void f() { case 1 ... 4: }"));
-        ASSERT_EQUALS("void f ( ) { case 4 . . . 1 : ; }", tokenizeAndStringify("void f() { case 4 ... 1: }"));
-        tokenizeAndStringify("void f() { case 1 ... 1000000: }"); // Do not run out of memory
+        ASSERT_EQUALS("void f ( ) { switch ( x ) { case 1 : case 2 : case 3 : case 4 : ; } }", tokenizeAndStringify("void f() { switch(x) { case 1 ... 4: } }"));
+        ASSERT_EQUALS("void f ( ) { switch ( x ) { case 4 . . . 1 : ; } }", tokenizeAndStringify("void f() { switch(x) { case 4 ... 1: } }"));
+        tokenizeAndStringify("void f() { switch(x) { case 1 ... 1000000: } }"); // Do not run out of memory
 
-        ASSERT_EQUALS("void f ( ) { case 'a' : case 'b' : case 'c' : ; }", tokenizeAndStringify("void f() { case 'a' ... 'c': }"));
-        ASSERT_EQUALS("void f ( ) { case 'c' . . . 'a' : ; }", tokenizeAndStringify("void f() { case 'c' ... 'a': }"));
+        ASSERT_EQUALS("void f ( ) { switch ( x ) { case 'a' : case 'b' : case 'c' : ; } }", tokenizeAndStringify("void f() { switch(x) { case 'a' ... 'c': } }"));
+        ASSERT_EQUALS("void f ( ) { switch ( x ) { case 'c' . . . 'a' : ; } }", tokenizeAndStringify("void f() { switch(x) { case 'c' ... 'a': } }"));
     }
 
     void prepareTernaryOpForAST() {
@@ -7972,6 +8043,7 @@ private:
         ASSERT_EQUALS("fint(0,(", testAst("f(int(),0);"));
         ASSERT_EQUALS("f(0,(", testAst("f(int *(),0);"));  // typedef int* X; f(X(),0);
         ASSERT_EQUALS("f((0,(", testAst("f((intp)int *(),0);"));
+        ASSERT_EQUALS("zx1(&y2(&|=", testAst("z = (x & (unsigned)1) | (y & (unsigned)2);")); // not type()
 
         // for
         ASSERT_EQUALS("for;;(", testAst("for(;;)"));
@@ -8266,6 +8338,7 @@ private:
 
         // not cast
         ASSERT_EQUALS("AB||", testAst("(A)||(B)"));
+        ASSERT_EQUALS("abc[1&=", testAst("a = (b[c]) & 1;"));
     }
 
     void astlambda() {

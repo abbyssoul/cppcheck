@@ -1143,7 +1143,7 @@ private:
                                 "}";
 
         ASSERT_EQUALS(expected, tok(code, false));
-        ASSERT_EQUALS("[test.cpp:28]: (debug) ValueFlow bailout: function return; nontrivial function body\n", errout.str());
+        ASSERT_EQUALS_WITHOUT_LINENUMBERS("[test.cpp:28]: (debug) valueflow.cpp:3109:valueFlowFunctionReturn bailout: function return; nontrivial function body\n", errout.str());
     }
 
     void simplifyTypedef36() {
@@ -2165,7 +2165,7 @@ private:
                             "    return fred;\n"
                             "}";
         tok(code);
-        ASSERT_EQUALS("[test.cpp:2]: (debug) ValueFlow bailout: function return; nontrivial function body\n", errout.str());
+        ASSERT_EQUALS_WITHOUT_LINENUMBERS("[test.cpp:2]: (debug) valueflow.cpp:3109:valueFlowFunctionReturn bailout: function return; nontrivial function body\n", errout.str());
     }
 
     void simplifyTypedef101() { // ticket #3003 (segmentation fault)
@@ -2329,6 +2329,11 @@ private:
         const char expected5[] = "A c ;";
         ASSERT_EQUALS(expected5, tok(code5));
 
+        // #5614
+        const char code5614[]     = "typedef typename T::U V;\n"
+                                    "typedef typename T::W (V::*Fn)();\n";
+        const char expected5614[] = ";";
+        ASSERT_EQUALS(expected5614, tok(code5614));
     }
 
     void simplifyTypedef112() {     // ticket #6048

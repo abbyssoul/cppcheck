@@ -27,13 +27,13 @@
 #include <QPrintPreviewDialog>
 #include <QSettings>
 #include <QDir>
+#include <QDate>
 #include "common.h"
 #include "erroritem.h"
 #include "resultsview.h"
 #include "report.h"
 #include "txtreport.h"
 #include "xmlreport.h"
-#include "xmlreportv1.h"
 #include "xmlreportv2.h"
 #include "csvreport.h"
 #include "printablereport.h"
@@ -48,12 +48,20 @@ ResultsView::ResultsView(QWidget * parent) :
 {
     mUI.setupUi(this);
 
-    connect(mUI.mTree, SIGNAL(ResultsHidden(bool)), this, SIGNAL(ResultsHidden(bool)));
-    connect(mUI.mTree, SIGNAL(CheckSelected(QStringList)), this, SIGNAL(CheckSelected(QStringList)));
-    connect(mUI.mTree, SIGNAL(SelectionChanged(const QModelIndex &)), this, SLOT(UpdateDetails(const QModelIndex &)));
+    connect(mUI.mTree, &ResultsTree::resultsHidden, this, &ResultsView::resultsHidden);
+    connect(mUI.mTree, &ResultsTree::checkSelected, this, &ResultsView::checkSelected);
+    connect(mUI.mTree, &ResultsTree::selectionChanged, this, &ResultsView::updateDetails);
+    connect(mUI.mTree, &ResultsTree::tagged, this, &ResultsView::tagged);
+    connect(mUI.mTree, &ResultsTree::suppressIds, this, &ResultsView::suppressIds);
+    connect(this, &ResultsView::showResults, mUI.mTree, &ResultsTree::showResults);
+    connect(this, &ResultsView::showCppcheckResults, mUI.mTree, &ResultsTree::showCppcheckResults);
+    connect(this, &ResultsView::showClangResults, mUI.mTree, &ResultsTree::showClangResults);
+    connect(this, &ResultsView::collapseAllResults, mUI.mTree, &ResultsTree::collapseAll);
+    connect(this, &ResultsView::expandAllResults, mUI.mTree, &ResultsTree::expandAll);
+    connect(this, &ResultsView::showHiddenResults, mUI.mTree, &ResultsTree::showHiddenResults);
 }
 
-void ResultsView::Initialize(QSettings *settings, ApplicationList *list, ThreadHandler *checkThreadHandler)
+void ResultsView::initialize(QSettings *settings, ApplicationList *list, ThreadHandler *checkThreadHandler)
 {
     mUI.mProgress->setMinimum(0);
     mUI.mProgress->setVisible(false);
@@ -62,7 +70,7 @@ void ResultsView::Initialize(QSettings *settings, ApplicationList *list, ThreadH
     mUI.mVerticalSplitter->restoreState(state);
     mShowNoErrorsMessage = settings->value(SETTINGS_SHOW_NO_ERRORS, true).toBool();
 
-    mUI.mTree->Initialize(settings, list, checkThreadHandler);
+    mUI.mTree->initialize(settings, list, checkThreadHandler);
 }
 
 ResultsView::~ResultsView()
@@ -70,15 +78,15 @@ ResultsView::~ResultsView()
     //dtor
 }
 
-void ResultsView::Clear(bool results)
+void ResultsView::clear(bool results)
 {
     if (results) {
-        mUI.mTree->Clear();
+        mUI.mTree->clear();
     }
 
-    mUI.mDetails->setText("");
+    mUI.mDetails->setText(QString());
 
-    mStatistics->Clear();
+    mStatistics->clear();
 
     //Clear the progressbar
     mUI.mProgress->setMaximum(PROGRESS_MAX);
@@ -86,58 +94,60 @@ void ResultsView::Clear(bool results)
     mUI.mProgress->setFormat("%p%");
 }
 
-void ResultsView::Clear(const QString &filename)
+void ResultsView::clear(const QString &filename)
 {
-    mUI.mTree->Clear(filename);
+    mUI.mTree->clear(filename);
 }
 
-void ResultsView::ClearRecheckFile(const QString &filename)
+void ResultsView::clearRecheckFile(const QString &filename)
 {
-    mUI.mTree->ClearRecheckFile(filename);
+    mUI.mTree->clearRecheckFile(filename);
 }
 
-void ResultsView::Progress(int value, const QString& description)
+void ResultsView::progress(int value, const QString& description)
 {
     mUI.mProgress->setValue(value);
     mUI.mProgress->setFormat(QString("%p% (%1)").arg(description));
 }
 
-void ResultsView::Error(const ErrorItem &item)
+void ResultsView::error(const ErrorItem &item)
 {
-    if (mUI.mTree->AddErrorItem(item)) {
-        emit GotResults();
-        mStatistics->AddItem(ShowTypes::SeverityToShowType(item.severity));
+    if (mUI.mTree->addErrorItem(item)) {
+        emit gotResults();
+        mStatistics->addItem(item.tool(), ShowTypes::SeverityToShowType(item.severity));
     }
 }
 
-void ResultsView::ShowResults(ShowTypes::ShowType type, bool show)
+void ResultsView::filterResults(const QString& filter)
 {
-    mUI.mTree->ShowResults(type, show);
+    mUI.mTree->filterResults(filter);
 }
 
-void ResultsView::CollapseAllResults()
+void ResultsView::saveStatistics(const QString &filename) const
 {
-    mUI.mTree->collapseAll();
+    QFile f(filename);
+    if (!f.open(QIODevice::Text | QIODevice::Append))
+        return;
+    QTextStream ts(&f);
+    ts <<  '[' << QDate::currentDate().toString("dd.MM.yyyy") << "]\n";
+    ts << QDateTime::currentMSecsSinceEpoch() << '\n';
+    foreach (QString tool, mStatistics->getTools()) {
+        ts << tool << "-error:" << mStatistics->getCount(tool, ShowTypes::ShowErrors) << '\n';
+        ts << tool << "-warning:" << mStatistics->getCount(tool, ShowTypes::ShowWarnings) << '\n';
+        ts << tool << "-style:" << mStatistics->getCount(tool, ShowTypes::ShowStyle) << '\n';
+        ts << tool << "-performance:" << mStatistics->getCount(tool, ShowTypes::ShowPerformance) << '\n';
+        ts << tool << "-portability:" << mStatistics->getCount(tool, ShowTypes::ShowPortability) << '\n';
+    }
 }
 
-void ResultsView::ExpandAllResults()
+void ResultsView::updateFromOldReport(const QString &filename) const
 {
-    mUI.mTree->expandAll();
+    mUI.mTree->updateFromOldReport(filename);
 }
 
-void ResultsView::ShowHiddenResults()
+void ResultsView::save(const QString &filename, Report::Type type) const
 {
-    mUI.mTree->ShowHiddenResults();
-}
-
-void ResultsView::FilterResults(const QString& filter)
-{
-    mUI.mTree->FilterResults(filter);
-}
-
-void ResultsView::Save(const QString &filename, Report::Type type) const
-{
-    if (!HasResults()) {
+    if (!hasResults()) {
         QMessageBox msgBox;
         msgBox.setText(tr("No errors found, nothing to save."));
         msgBox.setIcon(QMessageBox::Critical);
@@ -153,17 +163,14 @@ void ResultsView::Save(const QString &filename, Report::Type type) const
     case Report::TXT:
         report = new TxtReport(filename);
         break;
-    case Report::XML:
-        report = new XmlReportV1(filename);
-        break;
     case Report::XMLV2:
         report = new XmlReportV2(filename);
         break;
     }
 
     if (report) {
-        if (report->Create())
-            mUI.mTree->SaveResults(report);
+        if (report->create())
+            mUI.mTree->saveResults(report);
         else {
             QMessageBox msgBox;
             msgBox.setText(tr("Failed to save the report."));
@@ -180,7 +187,7 @@ void ResultsView::Save(const QString &filename, Report::Type type) const
     }
 }
 
-void ResultsView::Print()
+void ResultsView::print()
 {
     QPrinter printer;
     QPrintDialog dialog(&printer, this);
@@ -188,20 +195,20 @@ void ResultsView::Print()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    Print(&printer);
+    print(&printer);
 }
 
-void ResultsView::PrintPreview()
+void ResultsView::printPreview()
 {
     QPrinter printer;
     QPrintPreviewDialog dialog(&printer, this);
-    connect(&dialog, SIGNAL(paintRequested(QPrinter*)), SLOT(Print(QPrinter*)));
+    connect(&dialog, SIGNAL(paintRequested(QPrinter*)), SLOT(print(QPrinter*)));
     dialog.exec();
 }
 
-void ResultsView::Print(QPrinter* printer)
+void ResultsView::print(QPrinter* printer)
 {
-    if (!HasResults()) {
+    if (!hasResults()) {
         QMessageBox msgBox;
         msgBox.setText(tr("No errors found, nothing to print."));
         msgBox.setIcon(QMessageBox::Critical);
@@ -210,33 +217,33 @@ void ResultsView::Print(QPrinter* printer)
     }
 
     PrintableReport report;
-    mUI.mTree->SaveResults(&report);
-    QTextDocument doc(report.GetFormattedReportText());
+    mUI.mTree->saveResults(&report);
+    QTextDocument doc(report.getFormattedReportText());
     doc.print(printer);
 }
 
-void ResultsView::UpdateSettings(bool showFullPath,
+void ResultsView::updateSettings(bool showFullPath,
                                  bool saveFullPath,
                                  bool saveAllErrors,
                                  bool showNoErrorsMessage,
                                  bool showErrorId,
                                  bool showInconclusive)
 {
-    mUI.mTree->UpdateSettings(showFullPath, saveFullPath, saveAllErrors, showErrorId, showInconclusive);
+    mUI.mTree->updateSettings(showFullPath, saveFullPath, saveAllErrors, showErrorId, showInconclusive);
     mShowNoErrorsMessage = showNoErrorsMessage;
 }
 
-void ResultsView::SetCheckDirectory(const QString &dir)
+void ResultsView::setCheckDirectory(const QString &dir)
 {
-    mUI.mTree->SetCheckDirectory(dir);
+    mUI.mTree->setCheckDirectory(dir);
 }
 
-QString ResultsView::GetCheckDirectory(void)
+QString ResultsView::getCheckDirectory(void)
 {
-    return mUI.mTree->GetCheckDirectory();
+    return mUI.mTree->getCheckDirectory();
 }
 
-void ResultsView::CheckingStarted(int count)
+void ResultsView::checkingStarted(int count)
 {
     mUI.mProgress->setVisible(true);
     mUI.mProgress->setMaximum(PROGRESS_MAX);
@@ -244,7 +251,7 @@ void ResultsView::CheckingStarted(int count)
     mUI.mProgress->setFormat(tr("%p% (%1 of %2 files checked)").arg(0).arg(count));
 }
 
-void ResultsView::CheckingFinished()
+void ResultsView::checkingFinished()
 {
     mUI.mProgress->setVisible(false);
     mUI.mProgress->setFormat("%p%");
@@ -252,7 +259,7 @@ void ResultsView::CheckingFinished()
     //Should we inform user of non visible/not found errors?
     if (mShowNoErrorsMessage) {
         //Tell user that we found no errors
-        if (!HasResults()) {
+        if (!hasResults()) {
             QMessageBox msg(QMessageBox::Information,
                             tr("Cppcheck"),
                             tr("No errors found."),
@@ -261,7 +268,7 @@ void ResultsView::CheckingFinished()
 
             msg.exec();
         } //If we have errors but they aren't visible, tell user about it
-        else if (!mUI.mTree->HasVisibleResults()) {
+        else if (!mUI.mTree->hasVisibleResults()) {
             QString text = tr("Errors were found, but they are configured to be hidden.\n"\
                               "To toggle what kind of errors are shown, open view menu.");
             QMessageBox msg(QMessageBox::Information,
@@ -275,35 +282,35 @@ void ResultsView::CheckingFinished()
     }
 }
 
-bool ResultsView::HasVisibleResults() const
+bool ResultsView::hasVisibleResults() const
 {
-    return mUI.mTree->HasVisibleResults();
+    return mUI.mTree->hasVisibleResults();
 }
 
-bool ResultsView::HasResults() const
+bool ResultsView::hasResults() const
 {
-    return mUI.mTree->HasResults();
+    return mUI.mTree->hasResults();
 }
 
-void ResultsView::SaveSettings(QSettings *settings)
+void ResultsView::saveSettings(QSettings *settings)
 {
-    mUI.mTree->SaveSettings();
+    mUI.mTree->saveSettings();
     QByteArray state = mUI.mVerticalSplitter->saveState();
     settings->setValue(SETTINGS_MAINWND_SPLITTER_STATE, state);
     mUI.mVerticalSplitter->restoreState(state);
 }
 
-void ResultsView::Translate()
+void ResultsView::translate()
 {
-    mUI.mTree->Translate();
+    mUI.mTree->translate();
 }
 
-void ResultsView::DisableProgressbar()
+void ResultsView::disableProgressbar()
 {
     mUI.mProgress->setEnabled(false);
 }
 
-void ResultsView::ReadErrorsXml(const QString &filename)
+void ResultsView::readErrorsXml(const QString &filename)
 {
     const int version = XmlReport::determineVersion(filename);
     if (version == 0) {
@@ -313,17 +320,20 @@ void ResultsView::ReadErrorsXml(const QString &filename)
         msgBox.exec();
         return;
     }
+    if (version == 1) {
+        QMessageBox msgBox;
+        msgBox.setText(tr("XML format version 1 is no longer supported."));
+        msgBox.setIcon(QMessageBox::Critical);
+        msgBox.exec();
+        return;
+    }
 
-    XmlReport *report = NULL;
-    if (version == 1)
-        report = new XmlReportV1(filename);
-    else if (version == 2)
-        report = new XmlReportV2(filename);
+    XmlReport *report = new XmlReportV2(filename);
 
     QList<ErrorItem> errors;
     if (report) {
-        if (report->Open())
-            errors = report->Read();
+        if (report->open())
+            errors = report->read();
         else {
             QMessageBox msgBox;
             msgBox.setText(tr("Failed to read the report."));
@@ -341,18 +351,18 @@ void ResultsView::ReadErrorsXml(const QString &filename)
 
     ErrorItem item;
     foreach (item, errors) {
-        mUI.mTree->AddErrorItem(item);
+        mUI.mTree->addErrorItem(item);
     }
-    mUI.mTree->SetCheckDirectory("");
+    mUI.mTree->setCheckDirectory(QString());
 }
 
-void ResultsView::UpdateDetails(const QModelIndex &index)
+void ResultsView::updateDetails(const QModelIndex &index)
 {
     QStandardItemModel *model = qobject_cast<QStandardItemModel*>(mUI.mTree->model());
     QStandardItem *item = model->itemFromIndex(index);
 
     if (!item) {
-        mUI.mDetails->setText("");
+        mUI.mDetails->setText(QString());
         return;
     }
 
@@ -364,7 +374,7 @@ void ResultsView::UpdateDetails(const QModelIndex &index)
 
     // If there is no severity data then it is a parent item without summary and message
     if (!data.contains("severity")) {
-        mUI.mDetails->setText("");
+        mUI.mDetails->setText(QString());
         return;
     }
 
@@ -375,10 +385,20 @@ void ResultsView::UpdateDetails(const QModelIndex &index)
                            .arg(tr("Message")).arg(message);
 
     const QString file0 = data["file0"].toString();
-    if (file0 != "" && Path::isHeader(data["file"].toString().toStdString()))
+    if (!file0.isEmpty() && Path::isHeader(data["file"].toString().toStdString()))
         formattedMsg += QString("\n\n%1: %2").arg(tr("First included by")).arg(QDir::toNativeSeparators(file0));
 
-    if (mUI.mTree->ShowIdColumn())
+    if (mUI.mTree->showIdColumn())
         formattedMsg.prepend(tr("Id") + ": " + data["id"].toString() + "\n");
     mUI.mDetails->setText(formattedMsg);
+}
+
+void ResultsView::log(const QString &str)
+{
+    mUI.mListLog->addItem(str);
+}
+
+void ResultsView::debugError(const ErrorItem &item)
+{
+    mUI.mListLog->addItem(item.ToString());
 }

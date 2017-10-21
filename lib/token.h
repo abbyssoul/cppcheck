@@ -238,24 +238,31 @@ public:
     }
     void tokType(Token::Type t) {
         _tokType = t;
+
+        bool memoizedIsName = (_tokType == eName || _tokType == eType || _tokType == eVariable ||
+                               _tokType == eFunction || _tokType == eKeyword || _tokType == eBoolean ||
+                               _tokType == eEnumerator); // TODO: "true"/"false" aren't really a name...
+        setFlag(fIsName, memoizedIsName);
+
+        bool memoizedIsLiteral = (_tokType == eNumber || _tokType == eString || _tokType == eChar ||
+                                  _tokType == eBoolean || _tokType == eLiteral || _tokType == eEnumerator);
+        setFlag(fIsLiteral, memoizedIsLiteral);
     }
     void isKeyword(bool kwd) {
         if (kwd)
-            _tokType = eKeyword;
+            tokType(eKeyword);
         else if (_tokType == eKeyword)
-            _tokType = eName;
+            tokType(eName);
     }
     bool isKeyword() const {
         return _tokType == eKeyword;
     }
     bool isName() const {
-        return _tokType == eName || _tokType == eType || _tokType == eVariable || _tokType == eFunction || _tokType == eKeyword ||
-               _tokType == eBoolean || _tokType == eEnumerator; // TODO: "true"/"false" aren't really a name...
+        return getFlag(fIsName);
     }
     bool isUpperCaseName() const;
     bool isLiteral() const {
-        return _tokType == eNumber || _tokType == eString || _tokType == eChar ||
-               _tokType == eBoolean || _tokType == eLiteral || _tokType == eEnumerator;
+        return getFlag(fIsLiteral);
     }
     bool isNumber() const {
         return _tokType == eNumber;
@@ -502,7 +509,7 @@ public:
     void varId(unsigned int id) {
         _varId = id;
         if (id != 0) {
-            _tokType = eVariable;
+            tokType(eVariable);
             isStandardType(false);
         } else {
             update_property_info();
@@ -556,7 +563,7 @@ public:
      * @param end Stringification ends before this token is reached. 0 to stringify until end of list.
      * @return Stringified token list as a string
      */
-    std::string stringifyList(bool varid, bool attributes, bool linenumbers, bool linebreaks, bool files, const std::vector<std::string>* fileNames = 0, const Token* end = 0) const;
+    std::string stringifyList(bool varid, bool attributes, bool linenumbers, bool linebreaks, bool files, const std::vector<std::string>* fileNames = nullptr, const Token* end = nullptr) const;
     std::string stringifyList(const Token* end, bool attributes = true) const;
     std::string stringifyList(bool varid = false) const;
 
@@ -616,16 +623,16 @@ public:
     void function(const Function *f) {
         _function = f;
         if (f)
-            _tokType = eFunction;
+            tokType(eFunction);
         else if (_tokType == eFunction)
-            _tokType = eName;
+            tokType(eName);
     }
 
     /**
      * @return a pointer to the Function associated with this token.
      */
     const Function *function() const {
-        return _tokType == eFunction ? _function : 0;
+        return _tokType == eFunction ? _function : nullptr;
     }
 
     /**
@@ -635,16 +642,16 @@ public:
     void variable(const Variable *v) {
         _variable = v;
         if (v || _varId)
-            _tokType = eVariable;
+            tokType(eVariable);
         else if (_tokType == eVariable)
-            _tokType = eName;
+            tokType(eName);
     }
 
     /**
      * @return a pointer to the variable associated with this token.
      */
     const Variable *variable() const {
-        return _tokType == eVariable ? _variable : 0;
+        return _tokType == eVariable ? _variable : nullptr;
     }
 
     /**
@@ -657,14 +664,14 @@ public:
     * @return a pointer to the type associated with this token.
     */
     const ::Type *type() const {
-        return _tokType == eType ? _type : 0;
+        return _tokType == eType ? _type : nullptr;
     }
 
     /**
     * @return a pointer to the Enumerator associated with this token.
     */
     const Enumerator *enumerator() const {
-        return _tokType == eEnumerator ? _enumerator : 0;
+        return _tokType == eEnumerator ? _enumerator : nullptr;
     }
 
     /**
@@ -674,9 +681,9 @@ public:
     void enumerator(const Enumerator *e) {
         _enumerator = e;
         if (e)
-            _tokType = eEnumerator;
+            tokType(eEnumerator);
         else if (_tokType == eEnumerator)
-            _tokType = eName;
+            tokType(eName);
     }
 
     /**
@@ -746,8 +753,7 @@ public:
     }
 
     const std::list<ValueFlow::Value>& values() const {
-        static const std::list<ValueFlow::Value> emptyList;
-        return _values ? *_values : emptyList;
+        return _values ? *_values : emptyValueList;
     }
 
     /**
@@ -821,6 +827,9 @@ private:
         _previous = previousToken;
     }
 
+    /** used by deleteThis() to take data from token to delete */
+    void takeData(Token *fromToken);
+
     /**
      * Works almost like strcmp() except returns only true or false and
      * if str has empty space &apos; &apos; character, that character is handled
@@ -882,7 +891,10 @@ private:
         fIsAttributePacked      = (1 << 15), // __attribute__((packed))
         fIsOperatorKeyword      = (1 << 16), // operator=, etc
         fIsComplex              = (1 << 17), // complex/_Complex type
-        fIsEnumType             = (1 << 18)  // enumeration type
+        fIsEnumType             = (1 << 18), // enumeration type
+
+        fIsName                 = (1 << 19),
+        fIsLiteral              = (1 << 20),
     };
 
     unsigned int _flags;
@@ -925,6 +937,7 @@ private:
 
     // ValueFlow
     std::list<ValueFlow::Value>* _values;
+    static const std::list<ValueFlow::Value> emptyValueList;
 
 public:
     void astOperand1(Token *tok);

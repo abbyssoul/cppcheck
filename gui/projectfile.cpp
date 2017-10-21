@@ -23,12 +23,14 @@
 #include <QFile>
 #include <QDir>
 #include "projectfile.h"
+#include "common.h"
 
 static const char ProjectElementName[] = "project";
 static const char ProjectVersionAttrib[] = "version";
 static const char ProjectFileVersion[] = "1";
 static const char BuildDirElementName[] = "builddir";
 static const char ImportProjectElementName[] = "importproject";
+static const char AnalyzeAllVsConfigsElementName[] = "analyze-all-vs-configs";
 static const char IncludeDirElementName[] = "includedir";
 static const char DirElementName[] = "dir";
 static const char DirNameAttrib[] = "name";
@@ -50,19 +52,44 @@ static const char LibrariesElementName[] = "libraries";
 static const char LibraryElementName[] = "library";
 static const char SuppressionsElementName[] = "suppressions";
 static const char SuppressionElementName[] = "suppression";
+static const char AddonElementName[] = "addon";
+static const char AddonsElementName[] = "addons";
+static const char ToolElementName[] = "tool";
+static const char ToolsElementName[] = "tools";
+static const char TagsElementName[] = "tags";
+static const char TagElementName[] = "tag";
 
 ProjectFile::ProjectFile(QObject *parent) :
     QObject(parent)
 {
+    clear();
 }
 
 ProjectFile::ProjectFile(const QString &filename, QObject *parent) :
     QObject(parent),
     mFilename(filename)
 {
+    clear();
+    read();
 }
 
-bool ProjectFile::Read(const QString &filename)
+void ProjectFile::clear()
+{
+    mRootPath.clear();
+    mBuildDir.clear();
+    mImportProject.clear();
+    mAnalyzeAllVsConfigs = true;
+    mIncludeDirs.clear();
+    mDefines.clear();
+    mPaths.clear();
+    mExcludedPaths.clear();
+    mLibraries.clear();
+    mSuppressions.clear();
+    mAddons.clear();
+    mClangAnalyzer = mClangTidy = false;
+}
+
+bool ProjectFile::read(const QString &filename)
 {
     if (!filename.isEmpty())
         mFilename = filename;
@@ -70,6 +97,8 @@ bool ProjectFile::Read(const QString &filename)
     QFile file(mFilename);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         return false;
+
+    clear();
 
     QXmlStreamReader xmlReader(&file);
     bool insideProject = false;
@@ -83,43 +112,61 @@ bool ProjectFile::Read(const QString &filename)
             }
             // Read root path from inside project element
             if (insideProject && xmlReader.name() == RootPathName)
-                ReadRootPath(xmlReader);
+                readRootPath(xmlReader);
 
             // Read root path from inside project element
             if (insideProject && xmlReader.name() == BuildDirElementName)
-                ReadBuildDir(xmlReader);
+                readBuildDir(xmlReader);
 
             // Find paths to check from inside project element
             if (insideProject && xmlReader.name() == PathsElementName)
-                ReadCheckPaths(xmlReader);
+                readCheckPaths(xmlReader);
 
             if (insideProject && xmlReader.name() == ImportProjectElementName)
-                ReadImportProject(xmlReader);
+                readImportProject(xmlReader);
+
+            if (insideProject && xmlReader.name() == AnalyzeAllVsConfigsElementName)
+                readAnalyzeAllVsConfigs(xmlReader);
 
             // Find include directory from inside project element
             if (insideProject && xmlReader.name() == IncludeDirElementName)
-                ReadIncludeDirs(xmlReader);
+                readIncludeDirs(xmlReader);
 
             // Find preprocessor define from inside project element
             if (insideProject && xmlReader.name() == DefinesElementName)
-                ReadDefines(xmlReader);
+                readDefines(xmlReader);
 
             // Find exclude list from inside project element
             if (insideProject && xmlReader.name() == ExcludeElementName)
-                ReadExcludes(xmlReader);
+                readExcludes(xmlReader);
 
             // Find ignore list from inside project element
             // These are read for compatibility
             if (insideProject && xmlReader.name() == IgnoreElementName)
-                ReadExcludes(xmlReader);
+                readExcludes(xmlReader);
 
             // Find libraries list from inside project element
             if (insideProject && xmlReader.name() == LibrariesElementName)
-                ReadStringList(mLibraries, xmlReader,LibraryElementName);
+                readStringList(mLibraries, xmlReader,LibraryElementName);
 
             // Find suppressions list from inside project element
             if (insideProject && xmlReader.name() == SuppressionsElementName)
-                ReadStringList(mSuppressions, xmlReader,SuppressionElementName);
+                readStringList(mSuppressions, xmlReader,SuppressionElementName);
+
+            // Addons
+            if (insideProject && xmlReader.name() == AddonsElementName)
+                readStringList(mAddons, xmlReader, AddonElementName);
+
+            // Tools
+            if (insideProject && xmlReader.name() == ToolsElementName) {
+                QStringList tools;
+                readStringList(tools, xmlReader, ToolElementName);
+                mClangAnalyzer = tools.contains(CLANG_ANALYZER);
+                mClangTidy = tools.contains(CLANG_TIDY);
+            }
+
+            if (insideProject && xmlReader.name() == TagsElementName)
+                readStringList(mTags, xmlReader, TagElementName);
 
             break;
 
@@ -143,21 +190,18 @@ bool ProjectFile::Read(const QString &filename)
     }
 
     file.close();
-    if (projectTagFound)
-        return true;
-    else
-        return false;
+    return projectTagFound;
 }
 
-void ProjectFile::ReadRootPath(QXmlStreamReader &reader)
+void ProjectFile::readRootPath(QXmlStreamReader &reader)
 {
     QXmlStreamAttributes attribs = reader.attributes();
-    QString name = attribs.value("", RootPathNameAttrib).toString();
+    QString name = attribs.value(QString(), RootPathNameAttrib).toString();
     if (!name.isEmpty())
         mRootPath = name;
 }
 
-void ProjectFile::ReadBuildDir(QXmlStreamReader &reader)
+void ProjectFile::readBuildDir(QXmlStreamReader &reader)
 {
     mBuildDir.clear();
     do {
@@ -182,7 +226,7 @@ void ProjectFile::ReadBuildDir(QXmlStreamReader &reader)
     } while (1);
 }
 
-void ProjectFile::ReadImportProject(QXmlStreamReader &reader)
+void ProjectFile::readImportProject(QXmlStreamReader &reader)
 {
     mImportProject.clear();
     do {
@@ -207,7 +251,31 @@ void ProjectFile::ReadImportProject(QXmlStreamReader &reader)
     } while (1);
 }
 
-void ProjectFile::ReadIncludeDirs(QXmlStreamReader &reader)
+void ProjectFile::readAnalyzeAllVsConfigs(QXmlStreamReader &reader)
+{
+    do {
+        const QXmlStreamReader::TokenType type = reader.readNext();
+        switch (type) {
+        case QXmlStreamReader::Characters:
+            mAnalyzeAllVsConfigs = (reader.text().toString() == "true");
+        case QXmlStreamReader::EndElement:
+            return;
+        // Not handled
+        case QXmlStreamReader::StartElement:
+        case QXmlStreamReader::NoToken:
+        case QXmlStreamReader::Invalid:
+        case QXmlStreamReader::StartDocument:
+        case QXmlStreamReader::EndDocument:
+        case QXmlStreamReader::Comment:
+        case QXmlStreamReader::DTD:
+        case QXmlStreamReader::EntityReference:
+        case QXmlStreamReader::ProcessingInstruction:
+            break;
+        }
+    } while (1);
+}
+
+void ProjectFile::readIncludeDirs(QXmlStreamReader &reader)
 {
     QXmlStreamReader::TokenType type;
     bool allRead = false;
@@ -219,7 +287,7 @@ void ProjectFile::ReadIncludeDirs(QXmlStreamReader &reader)
             // Read dir-elements
             if (reader.name().toString() == DirElementName) {
                 QXmlStreamAttributes attribs = reader.attributes();
-                QString name = attribs.value("", DirNameAttrib).toString();
+                QString name = attribs.value(QString(), DirNameAttrib).toString();
                 if (!name.isEmpty())
                     mIncludeDirs << name;
             }
@@ -245,7 +313,7 @@ void ProjectFile::ReadIncludeDirs(QXmlStreamReader &reader)
     } while (!allRead);
 }
 
-void ProjectFile::ReadDefines(QXmlStreamReader &reader)
+void ProjectFile::readDefines(QXmlStreamReader &reader)
 {
     QXmlStreamReader::TokenType type;
     bool allRead = false;
@@ -256,7 +324,7 @@ void ProjectFile::ReadDefines(QXmlStreamReader &reader)
             // Read define-elements
             if (reader.name().toString() == DefineName) {
                 QXmlStreamAttributes attribs = reader.attributes();
-                QString name = attribs.value("", DefineNameAttrib).toString();
+                QString name = attribs.value(QString(), DefineNameAttrib).toString();
                 if (!name.isEmpty())
                     mDefines << name;
             }
@@ -282,7 +350,7 @@ void ProjectFile::ReadDefines(QXmlStreamReader &reader)
     } while (!allRead);
 }
 
-void ProjectFile::ReadCheckPaths(QXmlStreamReader &reader)
+void ProjectFile::readCheckPaths(QXmlStreamReader &reader)
 {
     QXmlStreamReader::TokenType type;
     bool allRead = false;
@@ -294,7 +362,7 @@ void ProjectFile::ReadCheckPaths(QXmlStreamReader &reader)
             // Read dir-elements
             if (reader.name().toString() == PathName) {
                 QXmlStreamAttributes attribs = reader.attributes();
-                QString name = attribs.value("", PathNameAttrib).toString();
+                QString name = attribs.value(QString(), PathNameAttrib).toString();
                 if (!name.isEmpty())
                     mPaths << name;
             }
@@ -320,7 +388,7 @@ void ProjectFile::ReadCheckPaths(QXmlStreamReader &reader)
     } while (!allRead);
 }
 
-void ProjectFile::ReadExcludes(QXmlStreamReader &reader)
+void ProjectFile::readExcludes(QXmlStreamReader &reader)
 {
     QXmlStreamReader::TokenType type;
     bool allRead = false;
@@ -331,14 +399,14 @@ void ProjectFile::ReadExcludes(QXmlStreamReader &reader)
             // Read exclude-elements
             if (reader.name().toString() == ExcludePathName) {
                 QXmlStreamAttributes attribs = reader.attributes();
-                QString name = attribs.value("", ExcludePathNameAttrib).toString();
+                QString name = attribs.value(QString(), ExcludePathNameAttrib).toString();
                 if (!name.isEmpty())
                     mExcludedPaths << name;
             }
             // Read ignore-elements - deprecated but support reading them
             else if (reader.name().toString() == IgnorePathName) {
                 QXmlStreamAttributes attribs = reader.attributes();
-                QString name = attribs.value("", IgnorePathNameAttrib).toString();
+                QString name = attribs.value(QString(), IgnorePathNameAttrib).toString();
                 if (!name.isEmpty())
                     mExcludedPaths << name;
             }
@@ -367,7 +435,7 @@ void ProjectFile::ReadExcludes(QXmlStreamReader &reader)
 }
 
 
-void ProjectFile::ReadStringList(QStringList &stringlist, QXmlStreamReader &reader, const char elementname[])
+void ProjectFile::readStringList(QStringList &stringlist, QXmlStreamReader &reader, const char elementname[])
 {
     QXmlStreamReader::TokenType type;
     bool allRead = false;
@@ -405,37 +473,42 @@ void ProjectFile::ReadStringList(QStringList &stringlist, QXmlStreamReader &read
     } while (!allRead);
 }
 
-void ProjectFile::SetIncludes(const QStringList &includes)
+void ProjectFile::setIncludes(const QStringList &includes)
 {
     mIncludeDirs = includes;
 }
 
-void ProjectFile::SetDefines(const QStringList &defines)
+void ProjectFile::setDefines(const QStringList &defines)
 {
     mDefines = defines;
 }
 
-void ProjectFile::SetCheckPaths(const QStringList &paths)
+void ProjectFile::setCheckPaths(const QStringList &paths)
 {
     mPaths = paths;
 }
 
-void ProjectFile::SetExcludedPaths(const QStringList &paths)
+void ProjectFile::setExcludedPaths(const QStringList &paths)
 {
     mExcludedPaths = paths;
 }
 
-void ProjectFile::SetLibraries(const QStringList &libraries)
+void ProjectFile::setLibraries(const QStringList &libraries)
 {
     mLibraries = libraries;
 }
 
-void ProjectFile::SetSuppressions(const QStringList &suppressions)
+void ProjectFile::setSuppressions(const QStringList &suppressions)
 {
     mSuppressions = suppressions;
 }
 
-bool ProjectFile::Write(const QString &filename)
+void ProjectFile::setAddons(const QStringList &addons)
+{
+    mAddons = addons;
+}
+
+bool ProjectFile::write(const QString &filename)
 {
     if (!filename.isEmpty())
         mFilename = filename;
@@ -467,6 +540,10 @@ bool ProjectFile::Write(const QString &filename)
         xmlWriter.writeCharacters(mImportProject);
         xmlWriter.writeEndElement();
     }
+
+    xmlWriter.writeStartElement(AnalyzeAllVsConfigsElementName);
+    xmlWriter.writeCharacters(mAnalyzeAllVsConfigs ? "true" : "false");
+    xmlWriter.writeEndElement();
 
     if (!mIncludeDirs.isEmpty()) {
         xmlWriter.writeStartElement(IncludeDirElementName);
@@ -508,22 +585,39 @@ bool ProjectFile::Write(const QString &filename)
         xmlWriter.writeEndElement();
     }
 
-    WriteStringList(xmlWriter,
+    writeStringList(xmlWriter,
                     mLibraries,
                     LibrariesElementName,
                     LibraryElementName);
 
-    WriteStringList(xmlWriter,
+    writeStringList(xmlWriter,
                     mSuppressions,
                     SuppressionsElementName,
                     SuppressionElementName);
+
+    writeStringList(xmlWriter,
+                    mAddons,
+                    AddonsElementName,
+                    AddonElementName);
+
+    QStringList tools;
+    if (mClangAnalyzer)
+        tools << CLANG_ANALYZER;
+    if (mClangTidy)
+        tools << CLANG_TIDY;
+    writeStringList(xmlWriter,
+                    tools,
+                    ToolsElementName,
+                    ToolElementName);
+
+    writeStringList(xmlWriter, mTags, TagsElementName, TagElementName);
 
     xmlWriter.writeEndDocument();
     file.close();
     return true;
 }
 
-void ProjectFile::WriteStringList(QXmlStreamWriter &xmlWriter, const QStringList &stringlist, const char startelementname[], const char stringelementname[])
+void ProjectFile::writeStringList(QXmlStreamWriter &xmlWriter, const QStringList &stringlist, const char startelementname[], const char stringelementname[])
 {
     if (stringlist.isEmpty())
         return;
@@ -542,5 +636,15 @@ QStringList ProjectFile::fromNativeSeparators(const QStringList &paths)
     QStringList ret;
     foreach (const QString &path, paths)
         ret << QDir::fromNativeSeparators(path);
+    return ret;
+}
+
+QStringList ProjectFile::getAddonsAndTools() const
+{
+    QStringList ret(mAddons);
+    if (mClangAnalyzer)
+        ret << CLANG_ANALYZER;
+    if (mClangTidy)
+        ret << CLANG_TIDY;
     return ret;
 }

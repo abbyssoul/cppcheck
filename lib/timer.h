@@ -74,6 +74,7 @@ public:
     void Stop();
 
 private:
+    Timer(const Timer& other); // disallow copying
     Timer& operator=(const Timer&); // disallow assignments
 
     const std::string _str;

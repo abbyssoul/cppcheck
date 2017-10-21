@@ -180,7 +180,7 @@ void CheckIO::checkFileUsage()
                 }
             } else if (Token::Match(tok, "%name% (") && tok->previous() && (!tok->previous()->isName() || Token::Match(tok->previous(), "return|throw"))) {
                 std::string mode;
-                const Token* fileTok = 0;
+                const Token* fileTok = nullptr;
                 Filepointer::Operation operation = Filepointer::NONE;
 
                 if ((tok->str() == "fopen" || tok->str() == "freopen" || tok->str() == "tmpfile" ||
@@ -202,20 +202,16 @@ void CheckIO::checkFileUsage()
                     operation = Filepointer::OPEN;
                 } else if ((tok->str() == "rewind" || tok->str() == "fseek" || tok->str() == "fsetpos" || tok->str() == "fflush") ||
                            (windows && tok->str() == "_fseeki64")) {
-                    if (printPortability && tok->str() == "fflush") {
-                        fileTok = tok->tokAt(2);
-                        if (fileTok) {
-                            if (fileTok->str() == "stdin")
+                    fileTok = tok->tokAt(2);
+                    if (printPortability && fileTok && tok->str() == "fflush") {
+                        if (fileTok->str() == "stdin")
+                            fflushOnInputStreamError(tok, fileTok->str());
+                        else {
+                            Filepointer& f = filepointers[fileTok->varId()];
+                            if (f.mode == READ_MODE)
                                 fflushOnInputStreamError(tok, fileTok->str());
-                            else {
-                                Filepointer& f = filepointers[fileTok->varId()];
-                                if (f.mode == READ_MODE)
-                                    fflushOnInputStreamError(tok, fileTok->str());
-                            }
                         }
                     }
-
-                    fileTok = tok->tokAt(2);
                     operation = Filepointer::POSITIONING;
                 } else if (tok->str() == "fgetc" || tok->str() == "fgetwc" ||
                            tok->str() == "fgets" || tok->str() == "fgetws" || tok->str() == "fread" ||
@@ -484,8 +480,12 @@ static bool findFormat(unsigned int arg, const Token *firstArg,
                  argTok->variable()->dimensionKnown(0) &&
                  argTok->variable()->dimension(0) != 0))) {
         *formatArgTok = argTok->nextArgument();
-        if (!argTok->values().empty() && argTok->values().front().isTokValue() && argTok->values().front().tokvalue && argTok->values().front().tokvalue->tokType() == Token::eString)
-            *formatStringTok = argTok->values().front().tokvalue;
+        if (!argTok->values().empty()) {
+            const ValueFlow::Value &value = argTok->values().front();
+            if (value.isTokValue() && value.tokvalue && value.tokvalue->tokType() == Token::eString) {
+                *formatStringTok = value.tokvalue;
+            }
+        }
         return true;
     }
     return false;
@@ -508,8 +508,8 @@ void CheckIO::checkWrongPrintfScanfArguments()
         for (const Token *tok = scope->classStart->next(); tok != scope->classEnd; tok = tok->next()) {
             if (!tok->isName()) continue;
 
-            const Token* argListTok = 0; // Points to first va_list argument
-            const Token* formatStringTok = 0; // Points to format string token
+            const Token* argListTok = nullptr; // Points to first va_list argument
+            const Token* formatStringTok = nullptr; // Points to format string token
 
             bool scan = false;
             bool scanf_s = false;
@@ -525,14 +525,16 @@ void CheckIO::checkWrongPrintfScanfArguments()
                 // formatstring found in library. Find format string and first argument belonging to format string.
                 if (!findFormat(static_cast<unsigned int>(formatStringArgNo), tok->tokAt(2), &formatStringTok, &argListTok))
                     continue;
-            } else if (Token::simpleMatch(tok, "swprintf (") && Token::Match(tok->tokAt(2)->nextArgument(), "%str%")) {
-                // Find third parameter and format string
-                if (!findFormat(1, tok->tokAt(2), &formatStringTok, &argListTok))
-                    continue;
-            } else if (Token::simpleMatch(tok, "swprintf (") && !Token::Match(tok->tokAt(2)->nextArgument(), "%str%")) {
-                // Find fourth parameter and format string
-                if (!findFormat(2, tok->tokAt(2), &formatStringTok, &argListTok))
-                    continue;
+            } else if (Token::simpleMatch(tok, "swprintf (")) {
+                if (Token::Match(tok->tokAt(2)->nextArgument(), "%str%")) {
+                    // Find third parameter and format string
+                    if (!findFormat(1, tok->tokAt(2), &formatStringTok, &argListTok))
+                        continue;
+                } else {
+                    // Find fourth parameter and format string
+                    if (!findFormat(2, tok->tokAt(2), &formatStringTok, &argListTok))
+                        continue;
+                }
             } else if (isWindows && Token::Match(tok, "sprintf_s|swprintf_s (")) {
                 // template <size_t size> int sprintf_s(char (&buffer)[size], const char *format, ...);
                 if (findFormat(1, tok->tokAt(2), &formatStringTok, &argListTok)) {
@@ -1273,7 +1275,7 @@ void CheckIO::checkFormatString(const Token * const tok,
                                 break;
                             case 'p':
                                 if (argInfo.typeToken->tokType() == Token::eString)
-                                    invalidPrintfArgTypeError_p(tok, numFormat, &argInfo);
+                                    ;// string literals are passed as pointers to literal start, okay
                                 else if (argInfo.isKnownType() && !argInfo.isArrayOrPointer())
                                     invalidPrintfArgTypeError_p(tok, numFormat, &argInfo);
                                 done = true;
@@ -1413,7 +1415,7 @@ CheckIO::ArgumentInfo::ArgumentInfo(const Token * arg, const Settings *settings,
             top = top->astParent();
         const ValueType *valuetype = top->argumentType();
         if (valuetype && valuetype->type >= ValueType::Type::BOOL) {
-            typeToken = tempToken = new Token(0);
+            typeToken = tempToken = new Token(nullptr);
             if (valuetype->pointer && valuetype->constness & 1) {
                 tempToken->str("const");
                 tempToken->insertToken("a");
@@ -1490,7 +1492,7 @@ CheckIO::ArgumentInfo::ArgumentInfo(const Token * arg, const Settings *settings,
                             if (function->retType->classScope->enumType)
                                 typeToken = function->retType->classScope->enumType;
                             else {
-                                tempToken = new Token(0);
+                                tempToken = new Token(nullptr);
                                 tempToken->fileIndex(tok1->fileIndex());
                                 tempToken->linenr(tok1->linenr());
                                 tempToken->str("int");
@@ -1511,7 +1513,7 @@ CheckIO::ArgumentInfo::ArgumentInfo(const Token * arg, const Settings *settings,
                         if (function->retType->classScope->enumType)
                             typeToken = function->retType->classScope->enumType;
                         else {
-                            tempToken = new Token(0);
+                            tempToken = new Token(nullptr);
                             tempToken->fileIndex(tok1->fileIndex());
                             tempToken->linenr(tok1->linenr());
                             tempToken->str("int");
@@ -1536,7 +1538,7 @@ CheckIO::ArgumentInfo::ArgumentInfo(const Token * arg, const Settings *settings,
             // check for some common well known functions
             else if (isCPP && ((Token::Match(tok1->previous(), "%var% . size|empty|c_str ( ) [,)]") && isStdContainer(tok1->previous())) ||
                                (Token::Match(tok1->previous(), "] . size|empty|c_str ( ) [,)]") && isStdContainer(tok1->previous()->link()->previous())))) {
-                tempToken = new Token(0);
+                tempToken = new Token(nullptr);
                 tempToken->fileIndex(tok1->fileIndex());
                 tempToken->linenr(tok1->linenr());
                 if (tok1->next()->str() == "size") {
@@ -1576,8 +1578,8 @@ CheckIO::ArgumentInfo::ArgumentInfo(const Token * arg, const Settings *settings,
                 variableInfo = varTok->variable();
 
                 if (!variableInfo || !isStdVectorOrString()) {
-                    variableInfo = 0;
-                    typeToken = 0;
+                    variableInfo = nullptr;
+                    typeToken = nullptr;
                 }
 
                 return;
@@ -1597,7 +1599,7 @@ CheckIO::ArgumentInfo::ArgumentInfo(const Token * arg, const Settings *settings,
                     if (variableInfo->type() && variableInfo->type()->classScope && variableInfo->type()->classScope->enumType)
                         typeToken = variableInfo->type()->classScope->enumType;
                     else {
-                        tempToken = new Token(0);
+                        tempToken = new Token(nullptr);
                         tempToken->fileIndex(tok1->fileIndex());
                         tempToken->linenr(tok1->linenr());
                         tempToken->str("int");
@@ -1636,7 +1638,7 @@ bool CheckIO::ArgumentInfo::isStdVectorOrString()
         _template = true;
         return true;
     } else if (variableInfo->isStlType(stl_string)) {
-        tempToken = new Token(0);
+        tempToken = new Token(nullptr);
         tempToken->fileIndex(variableInfo->typeStartToken()->fileIndex());
         tempToken->linenr(variableInfo->typeStartToken()->linenr());
         if (variableInfo->typeStartToken()->strAt(2) == "string")
@@ -1654,7 +1656,7 @@ bool CheckIO::ArgumentInfo::isStdVectorOrString()
                 _template = true;
                 return true;
             } else if (Token::Match(nameTok, "std :: string|wstring")) {
-                tempToken = new Token(0);
+                tempToken = new Token(nullptr);
                 tempToken->fileIndex(variableInfo->typeStartToken()->fileIndex());
                 tempToken->linenr(variableInfo->typeStartToken()->linenr());
                 if (nameTok->strAt(2) == "string")

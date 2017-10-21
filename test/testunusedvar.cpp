@@ -102,6 +102,8 @@ private:
         TEST_CASE(localvar47); // ticket #6603
         TEST_CASE(localvar48); // ticket #6954
         TEST_CASE(localvar49); // ticket #7594
+        TEST_CASE(localvar50); // ticket #6261 : dostuff(cond ? buf1 : buf2)
+        TEST_CASE(localvar51); // ticket #8128 - FN : tok = tok->next();
         TEST_CASE(localvaralias1);
         TEST_CASE(localvaralias2); // ticket #1637
         TEST_CASE(localvaralias3); // ticket #1639
@@ -115,6 +117,8 @@ private:
         TEST_CASE(localvaralias11); // ticket #4423 - iterator
         TEST_CASE(localvaralias12); // ticket #4394
         TEST_CASE(localvaralias13); // ticket #4487
+        TEST_CASE(localvaralias14); // ticket #5619
+        TEST_CASE(localvaralias15); // ticket #6315
         TEST_CASE(localvarasm);
         TEST_CASE(localvarstatic);
         TEST_CASE(localvarextern);
@@ -2018,6 +2022,44 @@ private:
         ASSERT_EQUALS("[test.cpp:16]: (style) Variable 'x' is assigned a value that is never used.\n", errout.str());
     }
 
+    void localvar50() { // #6261, #6542
+        // #6261 - ternary operator in function call
+        functionVariableUsage("void foo() {\n"
+                              "  char buf1[10];\n"
+                              "  dostuff(cond?buf1:buf2);\n"
+                              "}");
+        ASSERT_EQUALS("", errout.str());
+
+        functionVariableUsage("void foo() {\n"
+                              "  char buf1[10];\n"
+                              "  dostuff(cond?buf2:buf1);\n"
+                              "}");
+        ASSERT_EQUALS("", errout.str());
+
+        // #6542 - ternary operator
+        functionVariableUsage("void foo(int c) {\n"
+                              "  char buf1[10], buf2[10];\n"
+                              "  char *p = c ? buf1 : buf2;\n"
+                              "  dostuff(p);\n"
+                              "}");
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void localvar51() { // #8128 FN
+        functionVariableUsage("void foo() {\n"
+                              "  const char *tok = var->nameToken();\n"
+                              "  tok = tok->next();\n"  // read+write
+                              "}");
+        ASSERT_EQUALS("[test.cpp:3]: (style) Variable 'tok' is assigned a value that is never used.\n", errout.str());
+
+        // TODO: False negative
+        functionVariableUsage("void foo() {\n"
+                              "  int x = 4;\n"
+                              "  x = 15 + x;\n"  // read+write
+                              "}");
+        TODO_ASSERT_EQUALS("error", "", errout.str());
+    }
+
     void localvaralias1() {
         functionVariableUsage("void foo()\n"
                               "{\n"
@@ -2982,6 +3024,24 @@ private:
                               "    strcpy(p, \"x\");\n"
                               "}");
         TODO_ASSERT_EQUALS("a is assigned value that is never used", "", errout.str());
+    }
+
+    void localvaralias14() { // #5619
+        functionVariableUsage("void f() {\n"
+                              "    char a[4], *p=a;\n"
+                              "    p = dostuff(p);\n"
+                              "}");
+        TODO_ASSERT_EQUALS("p is assigned a value that is never used", "", errout.str());
+    }
+
+    void localvaralias15() { // #6315
+        functionVariableUsage("void f() {\n"
+                              "  int x=3;\n"
+                              "  int *p = &x;\n"
+                              "  int *p2[1] = {p};\n"
+                              "  dostuff(p2);\n"
+                              "}");
+        ASSERT_EQUALS("", errout.str());
     }
 
     void localvarasm() {

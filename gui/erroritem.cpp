@@ -17,6 +17,7 @@
  */
 
 #include "erroritem.h"
+#include "common.h"
 
 QErrorPathItem::QErrorPathItem(const ErrorLogger::ErrorMessage::FileLocation &loc)
     : file(QString::fromStdString(loc.getfile(false)))
@@ -24,6 +25,11 @@ QErrorPathItem::QErrorPathItem(const ErrorLogger::ErrorMessage::FileLocation &lo
     , col(loc.col)
     , info(QString::fromStdString(loc.getinfo()))
 {
+}
+
+bool operator==(const QErrorPathItem &i1, const QErrorPathItem &i2)
+{
+    return i1.file == i2.file && i1.col == i2.col && i1.line == i2.line && i1.info == i2.info;
 }
 
 ErrorItem::ErrorItem()
@@ -48,6 +54,16 @@ ErrorItem::ErrorItem(const ErrorLogger::ErrorMessage &errmsg)
     }
 }
 
+QString ErrorItem::tool() const
+{
+    if (errorId == CLANG_ANALYZER)
+        return CLANG_ANALYZER;
+    if (errorId.startsWith(CLANG_TIDY))
+        return CLANG_TIDY;
+    if (errorId.startsWith("clang-"))
+        return "clang";
+    return "cppcheck";
+}
 
 QString ErrorItem::ToString() const
 {

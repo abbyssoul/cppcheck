@@ -87,7 +87,7 @@ namespace cppcheck {
             Win64,
             Unix32,
             Unix64,
-            AVR8
+            PlatformFile
         };
 
         /** platform type */
@@ -125,11 +125,23 @@ namespace cppcheck {
                 return "unix32";
             case Unix64:
                 return "unix64";
-            case AVR8:
-                return "avr8";
+            case PlatformFile:
+                return "platformFile";
             default:
                 return "unknown";
             }
+        }
+
+        long long unsignedCharMax() const {
+            return max_value(char_bit + 1);
+        }
+
+        long long signedCharMax() const {
+            return max_value(char_bit);
+        }
+
+        long long signedCharMin() const {
+            return min_value(char_bit);
         }
     };
 

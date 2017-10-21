@@ -76,6 +76,9 @@ private:
         TEST_CASE(exit2);
         TEST_CASE(exit3);
 
+        // handling function calls
+        TEST_CASE(functioncall1);
+
         // goto
         TEST_CASE(goto1);
         TEST_CASE(goto2);
@@ -89,6 +92,7 @@ private:
         TEST_CASE(ifelse6); // #3370
         TEST_CASE(ifelse7); // #5576 - if (fd < 0)
         TEST_CASE(ifelse8); // #5747 - if (fd == -1)
+        TEST_CASE(ifelse9); // #5273 - if (X(p==NULL, 0))
 
         // switch
         TEST_CASE(switch1);
@@ -893,6 +897,15 @@ private:
         ASSERT_EQUALS("", errout.str());
     }
 
+    void functioncall1() {
+        check("void f(struct S *p) {\n"
+              "  p->x = malloc(10);\n"
+              "  free(p->x);\n"
+              "  p->x = 0;\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+    }
+
     void goto1() {
         check("static void f() {\n"
               "    int err = -ENOMEM;\n"
@@ -1020,6 +1033,16 @@ private:
               "    int fd = socket(AF_INET, SOCK_PACKET, 0 );\n"
               "    if (fd == -1)\n"
               "        return;\n"
+              "}");
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void ifelse9() { // #5273
+        check("void f() {\n"
+              "    char *p = malloc(100);\n"
+              "    if (dostuff(p==NULL,0))\n"
+              "        return;\n"
+              "    free(p);\n"
               "}");
         ASSERT_EQUALS("", errout.str());
     }
@@ -1184,6 +1207,9 @@ private:
         ASSERT_EQUALS("[test.c:1]: (error) Memory leak: p\n", errout.str());
 
         check("void f() { Fred *p = new Fred; }", true);
+        ASSERT_EQUALS("", errout.str());
+
+        check("void f() { Fred fred = malloc(10); }", true);
         ASSERT_EQUALS("", errout.str());
     }
 

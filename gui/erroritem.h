@@ -59,6 +59,8 @@ public:
     QString info;
 };
 
+bool operator==(const QErrorPathItem &i1, const QErrorPathItem &i2);
+
 /**
 * @brief A class containing error data for one error.
 *
@@ -77,6 +79,7 @@ public:
     * @return Error item as string.
     */
     QString ToString() const;
+    QString tool() const;
 
     QString file0;
     QString errorId;
@@ -86,6 +89,10 @@ public:
     QString message;
     int cwe;
     QList<QErrorPathItem> errorPath;
+
+    // Special GUI properties
+    QString sinceDate;
+    QString tags;
 };
 
 Q_DECLARE_METATYPE(ErrorItem);
@@ -103,6 +110,8 @@ public:
     Severity::SeverityType severity;
     QString summary;
     QString message;
+    QString sinceDate;
+    QString tags;
 };
 
 /// @}

@@ -131,7 +131,7 @@ void Preprocessor::setDirectives(const simplecpp::TokenList &tokens)
     }
 
     for (std::vector<const simplecpp::TokenList *>::const_iterator it = list.begin(); it != list.end(); ++it) {
-        for (const simplecpp::Token *tok = (*it)->cfront(); tok; tok = tok ? tok->next : nullptr) {
+        for (const simplecpp::Token *tok = (*it)->cfront(); tok; tok = tok->next) {
             if ((tok->op != '#') || (tok->previous && tok->previous->location.line == tok->location.line))
                 continue;
             if (tok->next && tok->next->str == "endfile")
@@ -550,6 +550,7 @@ static bool hasErrors(const simplecpp::OutputList &outputList)
         case simplecpp::Output::ERROR:
         case simplecpp::Output::INCLUDE_NESTED_TOO_DEEPLY:
         case simplecpp::Output::SYNTAX_ERROR:
+        case simplecpp::Output::UNHANDLED_CHAR_ERROR:
             return true;
         case simplecpp::Output::WARNING:
         case simplecpp::Output::MISSING_HEADER:
@@ -688,6 +689,7 @@ void Preprocessor::reportOutput(const simplecpp::OutputList &outputList, bool sh
         break;
         case simplecpp::Output::INCLUDE_NESTED_TOO_DEEPLY:
         case simplecpp::Output::SYNTAX_ERROR:
+        case simplecpp::Output::UNHANDLED_CHAR_ERROR:
             error(it->location.file(), it->location.line, it->msg);
             break;
         };
@@ -909,7 +911,7 @@ void Preprocessor::simplifyPragmaAsmPrivate(simplecpp::TokenList *tokenList)
             continue;
 
         const simplecpp::Token *endasm = tok3;
-        while ((endasm = endasm->next) != 0) {
+        while ((endasm = endasm->next) != nullptr) {
             if (endasm->op != '#' || sameline(endasm,endasm->previousSkipComments()))
                 continue;
             const simplecpp::Token * const endasm2 = endasm->nextSkipComments();

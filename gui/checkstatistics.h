@@ -35,31 +35,36 @@ public:
     /**
     * @brief Add new checked item to statistics.
     *
+    * @param tool Tool.
     * @param type Type of the item to add.
     */
-    void AddItem(ShowTypes::ShowType type);
+    void addItem(const QString &tool, ShowTypes::ShowType type);
 
     /**
     * @brief Clear the statistics.
     *
     */
-    void Clear();
+    void clear();
 
     /**
     * @brief Return statistics for given type.
     *
+    * @param tool Tool.
     * @param type Type for which the statistics are returned.
     * @return Number of items of given type.
     */
-    unsigned GetCount(ShowTypes::ShowType type) const;
+    unsigned getCount(const QString &tool, ShowTypes::ShowType type) const;
+
+    /** Get tools with results */
+    QStringList getTools() const;
 
 private:
-    unsigned mStyle;
-    unsigned mWarning;
-    unsigned mPerformance;
-    unsigned mPortability;
-    unsigned mInformation;
-    unsigned mError;
+    QMap<QString, unsigned> mStyle;
+    QMap<QString, unsigned> mWarning;
+    QMap<QString, unsigned> mPerformance;
+    QMap<QString, unsigned> mPortability;
+    QMap<QString, unsigned> mInformation;
+    QMap<QString, unsigned> mError;
 };
 
 /// @}

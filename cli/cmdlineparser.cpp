@@ -49,7 +49,7 @@ static void AddFilesToList(const std::string& FileList, std::vector<std::string>
     // To keep things initially simple, if the file can't be opened, just be silent and move on.
     std::istream *Files;
     std::ifstream Infile;
-    if (FileList.compare("-") == 0) { // read from stdin
+    if (FileList == "-") { // read from stdin
         Files = &std::cin;
     } else {
         Infile.open(FileList.c_str());
@@ -299,9 +299,9 @@ bool CmdLineParser::ParseFromArgs(int argc, const char* const argv[])
                     return false;
                 }
 
-                if (_settings->xml_version < 0 || _settings->xml_version > 2) {
-                    // We only have xml versions 1 and 2
-                    PrintMessage("cppcheck: '--xml-version' can only be 1 or 2.");
+                if (_settings->xml_version != 2) {
+                    // We only have xml version 2
+                    PrintMessage("cppcheck: '--xml-version' can only be 2.");
                     return false;
                 }
 
@@ -496,8 +496,13 @@ bool CmdLineParser::ParseFromArgs(int argc, const char* const argv[])
             // --project
             else if (std::strncmp(argv[i], "--project=", 10) == 0) {
                 _settings->project.import(argv[i]+10);
-                if (std::strstr(argv[i], ".sln") || std::strstr(argv[i], ".vcxproj"))
-                    CppCheckExecutor::tryLoadLibrary(_settings->library, argv[0], "windows");
+                if (std::strstr(argv[i], ".sln") || std::strstr(argv[i], ".vcxproj")) {
+                    if (!CppCheckExecutor::tryLoadLibrary(_settings->library, argv[0], "windows.cfg")) {
+                        // This shouldn't happen normally.
+                        PrintMessage("cppcheck: Failed to load 'windows.cfg'. Your Cppcheck installation is broken. Please re-install.");
+                        return false;
+                    }
+                }
             }
 
             // Report progress
@@ -518,6 +523,8 @@ bool CmdLineParser::ParseFromArgs(int argc, const char* const argv[])
                 _settings->standards.cpp = Standards::CPP03;
             } else if (std::strcmp(argv[i], "--std=c++11") == 0) {
                 _settings->standards.cpp = Standards::CPP11;
+            } else if (std::strcmp(argv[i], "--std=c++14") == 0) {
+                _settings->standards.cpp = Standards::CPP14;
             }
 
             // Output formatter
@@ -703,8 +710,6 @@ bool CmdLineParser::ParseFromArgs(int argc, const char* const argv[])
                     _settings->platform(Settings::Unix32);
                 else if (platform == "unix64")
                     _settings->platform(Settings::Unix64);
-                else if (platform == "avr8")
-                    _settings->platform(Settings::AVR8);
                 else if (platform == "native")
                     _settings->platform(Settings::Native);
                 else if (platform == "unspecified")
@@ -770,14 +775,6 @@ bool CmdLineParser::ParseFromArgs(int argc, const char* const argv[])
 
     if (_settings->isEnabled(Settings::UNUSED_FUNCTION) && _settings->jobs > 1) {
         PrintMessage("cppcheck: unusedFunction check can't be used with '-j' option. Disabling unusedFunction check.");
-    }
-
-    if (_settings->xml) {
-        // Warn about XML format 1, which will be removed in cppcheck 1.81
-        if (_settings->xml_version == 1U)
-            PrintMessage("cppcheck: XML format version 1 is deprecated and will be removed in cppcheck 1.81. Use '--xml-version=2'.");
-        if (_settings->inconclusive && _settings->xml_version == 1U)
-            PrintMessage("cppcheck: inconclusive messages will not be shown, because the old xml format is not compatible.");
     }
 
     if (argc <= 1) {
@@ -990,7 +987,9 @@ void CmdLineParser::PrintHelp()
               "                          * c++03\n"
               "                                 C++ code is C++03 compatible\n"
               "                          * c++11\n"
-              "                                 C++ code is C++11 compatible (default)\n"
+              "                                 C++ code is C++11 compatible\n"
+              "                          * c++14\n"
+              "                                 C++ code is C++14 compatible (default)\n"
               "                         More than one --std can be used:\n"
               "                           'cppcheck --std=c99 --std=posix file.c'\n"
               "    --suppress=<spec>    Suppress warnings that match <spec>. The format of\n"

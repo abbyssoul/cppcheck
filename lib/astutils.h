@@ -85,7 +85,7 @@ bool isReturnScope(const Token *endToken);
 bool isVariableChangedByFunctionCall(const Token *tok, const Settings *settings, bool *inconclusive);
 
 /** Is variable changed in block of code? */
-bool isVariableChanged(const Token *start, const Token *end, const unsigned int varid, const Settings *settings);
+bool isVariableChanged(const Token *start, const Token *end, const unsigned int varid, bool globalvar, const Settings *settings);
 
 /** Determines the number of arguments - if token is a function call or macro
  * @param start token which is supposed to be the function/macro name.
@@ -97,5 +97,13 @@ int numberOfArguments(const Token *start);
  * Get arguments (AST)
  */
 std::vector<const Token *> getArguments(const Token *ftok);
+
+/**
+ * find lambda function end token
+ * \todo handle explicit return type
+ * \param first The [ token
+ * \return nullptr or the }
+ */
+const Token *findLambdaEndToken(const Token *first);
 
 #endif // astutilsH

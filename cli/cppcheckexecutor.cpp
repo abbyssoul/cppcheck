@@ -34,6 +34,8 @@
 #include "threadexecutor.h"
 #include "utils.h"
 
+#include <csignal>
+#include <cstdio>
 #include <cstdlib> // EXIT_SUCCESS and EXIT_FAILURE
 #include <cstring>
 #include <iostream>
@@ -43,9 +45,7 @@
 
 #if !defined(NO_UNIX_SIGNAL_HANDLING) && defined(__GNUC__) && !defined(__CYGWIN__) && !defined(__MINGW32__) && !defined(__OS2__)
 #define USE_UNIX_SIGNAL_HANDLING
-#include <signal.h>
 #include <unistd.h>
-#include <cstdio>
 #if defined(__APPLE__)
 #   define _XOPEN_SOURCE // ucontext.h APIs can only be used on Mac OSX >= 10.7 if _XOPEN_SOURCE is defined
 #   include <ucontext.h>
@@ -78,7 +78,7 @@
 /*static*/ FILE* CppCheckExecutor::exceptionOutput = stdout;
 
 CppCheckExecutor::CppCheckExecutor()
-    : _settings(0), time1(0), errorOutput(nullptr), errorlist(false)
+    : _settings(nullptr), latestProgressOutputTime(0), errorOutput(nullptr), errorlist(false)
 {
 }
 
@@ -105,9 +105,9 @@ bool CppCheckExecutor::parseFromArgs(CppCheck *cppcheck, int argc, const char* c
 
         if (parser.GetShowErrorMessages()) {
             errorlist = true;
-            std::cout << ErrorLogger::ErrorMessage::getXMLHeader(settings.xml_version);
+            std::cout << ErrorLogger::ErrorMessage::getXMLHeader();
             cppcheck->getErrorMessages();
-            std::cout << ErrorLogger::ErrorMessage::getXMLFooter(settings.xml_version) << std::endl;
+            std::cout << ErrorLogger::ErrorMessage::getXMLFooter() << std::endl;
         }
 
         if (parser.ExitAfterPrinting()) {
@@ -197,6 +197,11 @@ int CppCheckExecutor::check(int argc, const char* const argv[])
     }
 }
 
+void CppCheckExecutor::setSettings(const Settings &settings)
+{
+    _settings = &settings;
+}
+
 /**
  *  Simple helper function:
  * \return size of array
@@ -279,6 +284,11 @@ static void print_stacktrace(FILE* output, bool demangling, int maxdepth, bool l
         }
     }
 #undef ADDRESSDISPLAYLENGTH
+#else
+    UNUSED(output);
+    UNUSED(demangling);
+    UNUSED(maxdepth);
+    UNUSED(lowMem);
 #endif
 }
 
@@ -341,7 +351,10 @@ static void CppcheckSignalHandler(int signo, siginfo_t * info, void * context)
     if (uc) {
         type = (int)uc->uc_mcontext.gregs[REG_ERR] & 2;
     }
+#else
+    UNUSED(context);
 #endif
+
     const Signalmap_t::const_iterator it=listofsignals.find(signo);
     const char * const signame = (it==listofsignals.end()) ? "unknown" : it->second.c_str();
     bool printCallstack=true; // try to print a callstack?
@@ -815,14 +828,14 @@ int CppCheckExecutor::check_internal(CppCheck& cppcheck, int /*argc*/, const cha
     }
 
     if (settings.reportProgress)
-        time1 = std::time(0);
+        latestProgressOutputTime = std::time(nullptr);
 
     if (!settings.outputFile.empty()) {
         errorOutput = new std::ofstream(settings.outputFile);
     }
 
     if (settings.xml) {
-        reportErr(ErrorLogger::ErrorMessage::getXMLHeader(settings.xml_version));
+        reportErr(ErrorLogger::ErrorMessage::getXMLHeader());
     }
 
     if (!settings.buildDir.empty()) {
@@ -919,15 +932,39 @@ int CppCheckExecutor::check_internal(CppCheck& cppcheck, int /*argc*/, const cha
     }
 
     if (settings.xml) {
-        reportErr(ErrorLogger::ErrorMessage::getXMLFooter(settings.xml_version));
+        reportErr(ErrorLogger::ErrorMessage::getXMLFooter());
     }
 
-    _settings = 0;
+    _settings = nullptr;
     if (returnValue)
         return settings.exitCode;
     else
         return 0;
 }
+
+#ifdef _WIN32
+// fix trac ticket #439 'Cppcheck reports wrong filename for filenames containing 8-bit ASCII'
+static inline std::string ansiToOEM(const std::string &msg, bool doConvert)
+{
+    if (doConvert) {
+        const unsigned msglength = msg.length();
+        // convert ANSI strings to OEM strings in two steps
+        std::vector<WCHAR> wcContainer(msglength);
+        std::string result(msglength, '\0');
+
+        // ansi code page characters to wide characters
+        MultiByteToWideChar(CP_ACP, 0, msg.data(), msglength, wcContainer.data(), msglength);
+        // wide characters to oem codepage characters
+        WideCharToMultiByte(CP_OEMCP, 0, wcContainer.data(), msglength, const_cast<char *>(result.data()), msglength, NULL, NULL);
+
+        return result; // hope for return value optimization
+    }
+    return msg;
+}
+#else
+// no performance regression on non-windows systems
+#define ansiToOEM(msg, doConvert) (msg)
+#endif
 
 void CppCheckExecutor::reportErr(const std::string &errmsg)
 {
@@ -938,26 +975,27 @@ void CppCheckExecutor::reportErr(const std::string &errmsg)
     _errorList.insert(errmsg);
     if (errorOutput)
         *errorOutput << errmsg << std::endl;
-    else
-        std::cerr << errmsg << std::endl;
+    else {
+        std::cerr << ansiToOEM(errmsg, (_settings == nullptr) ? true : !_settings->xml) << std::endl;
+    }
 }
 
 void CppCheckExecutor::reportOut(const std::string &outmsg)
 {
-    std::cout << outmsg << std::endl;
+    std::cout << ansiToOEM(outmsg, true) << std::endl;
 }
 
 void CppCheckExecutor::reportProgress(const std::string &filename, const char stage[], const std::size_t value)
 {
     (void)filename;
 
-    if (!time1)
+    if (!latestProgressOutputTime)
         return;
 
     // Report progress messages every 10 seconds
-    const std::time_t time2 = std::time(nullptr);
-    if (time2 >= (time1 + 10)) {
-        time1 = time2;
+    const std::time_t currentTime = std::time(nullptr);
+    if (currentTime >= (latestProgressOutputTime + 10)) {
+        latestProgressOutputTime = currentTime;
 
         // format a progress message
         std::ostringstream ostr;
@@ -979,9 +1017,9 @@ void CppCheckExecutor::reportStatus(std::size_t fileindex, std::size_t filecount
 {
     if (filecount > 1) {
         std::ostringstream oss;
+        const long percentDone = (sizetotal > 0) ? static_cast<long>(static_cast<long double>(sizedone) / sizetotal * 100) : 0;
         oss << fileindex << '/' << filecount
-            << " files checked " <<
-            (sizetotal > 0 ? static_cast<long>(static_cast<long double>(sizedone) / sizetotal*100) : 0)
+            << " files checked " << percentDone
             << "% done";
         std::cout << oss.str() << std::endl;
     }
@@ -990,9 +1028,9 @@ void CppCheckExecutor::reportStatus(std::size_t fileindex, std::size_t filecount
 void CppCheckExecutor::reportErr(const ErrorLogger::ErrorMessage &msg)
 {
     if (errorlist) {
-        reportOut(msg.toXML(false, _settings->xml_version));
+        reportOut(msg.toXML());
     } else if (_settings->xml) {
-        reportErr(msg.toXML(_settings->verbose, _settings->xml_version));
+        reportErr(msg.toXML());
     } else {
         reportErr(msg.toString(_settings->verbose, _settings->outputFormat));
     }

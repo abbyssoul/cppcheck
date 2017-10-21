@@ -188,6 +188,8 @@ private:
         TEST_CASE(duplInheritedMembers);
         TEST_CASE(explicitConstructors);
         TEST_CASE(copyCtorAndEqOperator);
+
+        TEST_CASE(publicInterfaceDivZero);
     }
 
     void checkCopyCtorAndEqOperator(const char code[]) {
@@ -252,6 +254,26 @@ private:
                                    "{ \n"
                                    "    A& operator=(const int &x) { this->x = x; return *this; }\n"
                                    "    int x;\n"
+                                   "};");
+        ASSERT_EQUALS("", errout.str());
+
+        checkCopyCtorAndEqOperator("class A {\n"
+                                   "public:\n"
+                                   "    A() : x(0) { }\n"
+                                   "    A(const A & a) { x = a.x; }\n"
+                                   "    A & operator = (const A & a) {\n"
+                                   "        x = a.x;\n"
+                                   "        return *this;\n"
+                                   "    }\n"
+                                   "private:\n"
+                                   "    int x;\n"
+                                   "};\n"
+                                   "class B : public A {\n"
+                                   "public:\n"
+                                   "    B() { }\n"
+                                   "    B(const B & b) :A(b) { }\n"
+                                   "private:\n"
+                                   "    static int i;\n"
                                    "};");
         ASSERT_EQUALS("", errout.str());
     }
@@ -751,6 +773,14 @@ private:
                        "    void operator=(const A&)=delete;\n"
                        "};");
         ASSERT_EQUALS("", errout.str());
+
+        checkOpertorEq("class A\n"
+                       "{\n"
+                       "public:\n"
+                       "    void goo() {}"
+                       "    void operator=(A&);\n"
+                       "};");
+        ASSERT_EQUALS("[test.cpp:4]: (style) 'A::operator=' should return 'A &'.\n", errout.str());
 
         checkOpertorEq("class A\n"
                        "{\n"
@@ -6462,6 +6492,47 @@ private:
                                      "};\n"
                                      "A::A()\n"
                                      "{nonpure(false);}\n");
+        ASSERT_EQUALS("", errout.str());
+    }
+
+    void checkPublicInterfaceDivZero(const char code[]) {
+        // Clear the error log
+        errout.str("");
+        Settings settings;
+        settings.addEnabled("warning");
+
+        // Tokenize..
+        Tokenizer tokenizer(&settings, this);
+        std::istringstream istr(code);
+        tokenizer.tokenize(istr, "test.cpp");
+
+        // Check..
+        CheckClass checkClass(&tokenizer, &settings, this);
+        checkClass.checkPublicInterfaceDivZero(true);
+    }
+
+    void publicInterfaceDivZero() {
+        checkPublicInterfaceDivZero("class A {\n"
+                                    "public:\n"
+                                    "  void dostuff(int x);\n"
+                                    "}\n"
+                                    "void A::dostuff(int x) { int a = 1000 / x; }");
+        ASSERT_EQUALS("[test.cpp:5]: (warning) Public interface of A is not safe. When calling A::dostuff(), if parameter x is 0 that leads to division by zero.\n", errout.str());
+
+        checkPublicInterfaceDivZero("class A {\n"
+                                    "public:\n"
+                                    "  void f1();\n"
+                                    "  void f2(int x);\n"
+                                    "}\n"
+                                    "void A::f1() {}\n"
+                                    "void A::f2(int x) { int a = 1000 / x; }");
+        ASSERT_EQUALS("[test.cpp:7]: (warning) Public interface of A is not safe. When calling A::f2(), if parameter x is 0 that leads to division by zero.\n", errout.str());
+
+        checkPublicInterfaceDivZero("class A {\n"
+                                    "public:\n"
+                                    "  void operator/(int x);\n"
+                                    "}\n"
+                                    "void A::operator/(int x) { int a = 1000 / x; }");
         ASSERT_EQUALS("", errout.str());
     }
 };

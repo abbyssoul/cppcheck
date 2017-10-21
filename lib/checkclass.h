@@ -61,6 +61,7 @@ public:
 
         // can't be a simplified check .. the 'sizeof' is used.
         checkClass.checkMemset();
+        checkClass.checkPublicInterfaceDivZero();
     }
 
     /** @brief Run checks on the simplified token list */
@@ -151,6 +152,9 @@ public:
     /** @brief Check that copy constructor and operator defined together */
     void checkCopyCtorAndEqOperator();
 
+    /** @brief Check that arbitrary usage of the public interface does not result in division by zero */
+    void checkPublicInterfaceDivZero(bool test=false);
+
 private:
     const SymbolDatabase *symbolDatabase;
 
@@ -183,6 +187,7 @@ private:
     void callsPureVirtualFunctionError(const Function & scopeFunction, const std::list<const Token *> & tokStack, const std::string &purefuncname);
     void duplInheritedMembersError(const Token* tok1, const Token* tok2, const std::string &derivedname, const std::string &basename, const std::string &variablename, bool derivedIsStruct, bool baseIsStruct);
     void copyCtorAndEqOperatorError(const Token *tok, const std::string &classname, bool isStruct, bool hasCopyCtor);
+    void publicInterfaceDivZeroError(const Token *tok, const std::string &className, const std::string &methodName, const std::string &varName);
 
     void getErrorMessages(ErrorLogger *errorLogger, const Settings *settings) const {
         CheckClass c(nullptr, settings, errorLogger);
@@ -197,8 +202,8 @@ private:
         c.memsetError(nullptr, "memfunc", "classname", "class");
         c.memsetErrorReference(nullptr, "memfunc", "class");
         c.memsetErrorFloat(nullptr, "class");
-        c.mallocOnClassWarning(nullptr, "malloc", 0);
-        c.mallocOnClassError(nullptr, "malloc", 0, "std::string");
+        c.mallocOnClassWarning(nullptr, "malloc", nullptr);
+        c.mallocOnClassError(nullptr, "malloc", nullptr, "std::string");
         c.operatorEqReturnError(nullptr, "class");
         c.virtualDestructorError(nullptr, "Base", "Derived", false);
         c.thisSubtractionError(nullptr);
@@ -208,11 +213,12 @@ private:
         c.operatorEqToSelfError(nullptr);
         c.checkConstError(nullptr, "class", "function", false);
         c.checkConstError(nullptr, "class", "function", true);
-        c.initializerListError(nullptr, 0, "class", "variable");
+        c.initializerListError(nullptr, nullptr, "class", "variable");
         c.suggestInitializationList(nullptr, "variable");
         c.selfInitializationError(nullptr, "var");
-        c.duplInheritedMembersError(nullptr, 0, "class", "class", "variable", false, false);
+        c.duplInheritedMembersError(nullptr, nullptr, "class", "class", "variable", false, false);
         c.copyCtorAndEqOperatorError(nullptr, "class", false, false);
+        c.publicInterfaceDivZeroError(nullptr, "Class", "dostuff", "x");
     }
 
     static std::string myName() {
@@ -239,7 +245,8 @@ private:
                "- Suspicious subtraction from 'this'\n"
                "- Call of pure virtual function in constructor/destructor\n"
                "- Duplicated inherited data members\n"
-               "- If 'copy constructor' defined, 'operator=' also should be defined and vice versa\n";
+               "- If 'copy constructor' defined, 'operator=' also should be defined and vice versa\n"
+               "- Check that arbitrary usage of public interface does not result in division by zero\n";
     }
 
     // operatorEqRetRefThis helper functions

@@ -26,6 +26,7 @@
 #include "suppressions.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
@@ -37,12 +38,10 @@
 #ifdef THREADING_MODEL_FORK
 #include <sys/select.h>
 #include <sys/wait.h>
-#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #endif
 #ifdef THREADING_MODEL_WIN
-#include <errno.h>
 #include <process.h>
 #include <windows.h>
 #endif
@@ -102,11 +101,15 @@ int ThreadExecutor::handleRead(int rpipe, unsigned int &result)
         std::exit(0);
     }
 
-    char *buf = new char[len];
-    if (read(rpipe, buf, len) <= 0) {
+    // Don't rely on incoming data being null-terminated.
+    // Allocate +1 element and null-terminate the buffer.
+    char *buf = new char[len + 1];
+    const ssize_t readIntoBuf = read(rpipe, buf, len);
+    if (readIntoBuf <= 0) {
         std::cerr << "#### You found a bug from cppcheck.\nThreadExecutor::handleRead error, type was:" << type << std::endl;
         std::exit(0);
     }
+    buf[readIntoBuf] = 0;
 
     if (type == REPORT_OUT) {
         _errorLogger.reportOut(buf);
@@ -329,7 +332,7 @@ void ThreadExecutor::writeToPipe(PipeSignal type, const std::string &data)
     std::memcpy(&(out[1+sizeof(len)]), data.c_str(), len);
     if (write(_wpipe, out, len + 1 + sizeof(len)) <= 0) {
         delete [] out;
-        out = 0;
+        out = nullptr;
         std::cerr << "#### ThreadExecutor::writeToPipe, Failed to write to pipe" << std::endl;
         std::exit(0);
     }

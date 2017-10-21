@@ -216,16 +216,19 @@ private:
         TEST_CASE(garbageCode183); // #7505
         TEST_CASE(garbageCode184); // #7699
         TEST_CASE(garbageCode185); // #6011
+        TEST_CASE(garbageCode186); // #8151
+        TEST_CASE(garbageCode187);
         TEST_CASE(garbageValueFlow);
         TEST_CASE(garbageSymbolDatabase);
         TEST_CASE(garbageAST);
         TEST_CASE(templateSimplifierCrashes);
         TEST_CASE(syntaxErrorFirstToken); // Make sure syntax errors are detected and reported
         TEST_CASE(syntaxErrorLastToken); // Make sure syntax errors are detected and reported
+        TEST_CASE(syntaxErrorCase);
         TEST_CASE(enumTrailingComma);
     }
 
-    std::string checkCode(const char code[], bool cpp = true) {
+    std::string checkCode(const std::string &code, bool cpp = true) {
         // double the tests - run each example as C as well as C++
         const char* const filename = cpp ? "test.cpp" : "test.c";
         const char* const alternatefilename = cpp ? "test.c" : "test.cpp";
@@ -239,7 +242,7 @@ private:
         return checkCodeInternal(code, filename);
     }
 
-    std::string checkCodeInternal(const char code[], const char* filename) {
+    std::string checkCodeInternal(const std::string &code, const char* filename) {
         errout.str("");
 
         // tokenize..
@@ -308,7 +311,7 @@ private:
         } catch (InternalError& e) {
             ASSERT_EQUALS("Analysis failed. If the code is valid then please report this failure.", e.errorMessage);
             ASSERT_EQUALS("cppcheckError", e.id);
-            ASSERT_EQUALS(5, e.token->linenr());
+            ASSERT_EQUALS(4, e.token->linenr());
         }
     }
 
@@ -832,7 +835,7 @@ private:
     }
 
     void garbageCode108() { //  #6895 "segmentation fault (invalid code) in CheckCondition::isOppositeCond"
-        checkCode("A( ) { } bool f( ) { ( ) F; ( ) { ( == ) if ( !=< || ( !A( ) && r[2] ) ) ( !A( ) ) ( ) } }");
+        ASSERT_THROW(checkCode("A( ) { } bool f( ) { ( ) F; ( ) { ( == ) if ( !=< || ( !A( ) && r[2] ) ) ( !A( ) ) ( ) } }"), InternalError);
     }
 
     void garbageCode109() { //  #6900 "segmentation fault (invalid code) in CheckStl::runSimplifiedChecks"
@@ -1419,6 +1422,16 @@ private:
             "}\n");
     }
 
+    // #8151 - segfault due to incorrect template syntax
+    void garbageCode186() {
+        ASSERT_THROW(checkCode("A<B<><>C"), InternalError);
+    }
+
+    void garbageCode187() { // # 8152 - segfault in handling
+        const std::string inp("0|\0|0>;\n", 8);
+        ASSERT_THROW(checkCode(inp), InternalError);
+    }
+
     void syntaxErrorFirstToken() {
         ASSERT_THROW(checkCode("&operator(){[]};"), InternalError); // #7818
         ASSERT_THROW(checkCode("*(*const<> (size_t); foo) { } *(*const (size_t)() ; foo) { }"), InternalError); // #6858
@@ -1435,7 +1448,6 @@ private:
         ASSERT_THROW(checkCode("( ) &"), InternalError);
         ASSERT_THROW(checkCode("|| #if #define <="), InternalError); // #2601
         ASSERT_THROW(checkCode("f::y:y : <x::"), InternalError); // #6613
-        ASSERT_THROW(checkCode("\xe2u."), InternalError); // #6613
         ASSERT_THROW(checkCode("a \"b\" not_eq \"c\""), InternalError); // #6720
         ASSERT_THROW(checkCode("(int arg2) { } { } typedef void (func_type) (int, int); typedef func_type&"), InternalError); // #6738
         ASSERT_THROW(checkCode("&g[0]; { (g[0] 0) } =", false), InternalError); // #6744
@@ -1469,6 +1481,12 @@ private:
         ASSERT_THROW(checkCode("{} const const\n"), InternalError); // #2637
 
         // ASSERT_THROW(  , InternalError)
+    }
+
+    void syntaxErrorCase() {
+        // case must be inside switch block
+        ASSERT_THROW(checkCode("void f() { switch (a) {}; case 1: }"), InternalError); // #8184
+        ASSERT_THROW(checkCode("struct V : { public case {} ; struct U : U  void { V *f (int x) (x) } }"), InternalError); // #5120
     }
 
     void enumTrailingComma() {

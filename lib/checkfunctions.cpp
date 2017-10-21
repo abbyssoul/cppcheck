@@ -149,7 +149,7 @@ void CheckFunctions::invalidFunctionArgError(const Token *tok, const std::string
                     "invalidFunctionArg",
                     errmsg.str(),
                     CWE628,
-                    invalidValue->inconclusive);
+                    invalidValue->isInconclusive());
     else
         reportError(tok,
                     Severity::error,
@@ -381,7 +381,9 @@ void CheckFunctions::memsetInvalid2ndParam()
 
             if (printWarning && secondParamTok->isNumber()) { // Check if the second parameter is a literal and is out of range
                 const long long int value = MathLib::toLongNumber(secondParamTok->str());
-                if (value < -128 || value > 255) // FIXME: Use platform char_bits
+                const long long sCharMin = _settings->signedCharMin();
+                const long long uCharMax = _settings->unsignedCharMax();
+                if (value < sCharMin || value > uCharMax)
                     memsetValueOutOfRangeError(secondParamTok, secondParamTok->str());
             }
         }
@@ -413,21 +415,37 @@ void CheckFunctions::checkLibraryMatchFunctions()
     if (!_settings->checkLibrary || !_settings->isEnabled(Settings::INFORMATION))
         return;
 
+    bool New = false;
     for (const Token *tok = _tokenizer->tokens(); tok; tok = tok->next()) {
-        if (Token::Match(tok, "%name% (") &&
-            !Token::Match(tok, "for|if|while|switch|sizeof|catch|asm|return") &&
-            !tok->function() &&
-            !tok->varId() &&
-            !tok->type() &&
-            !tok->isStandardType() &&
-            tok->linkAt(1)->strAt(1) != "(" &&
-            !Token::simpleMatch(tok->astParent(), "new") &&
-            tok->astParent() == tok->next() &&
-            _settings->library.isNotLibraryFunction(tok)) {
-            reportError(tok,
-                        Severity::information,
-                        "checkLibraryFunction",
-                        "--check-library: There is no matching configuration for function " + tok->str() + "()");
-        }
+        if (!tok->scope() || !tok->scope()->isExecutable())
+            continue;
+
+        if (tok->str() == "new")
+            New = true;
+        else if (tok->str() == ";")
+            New = false;
+        else if (New)
+            continue;
+
+        if (!Token::Match(tok, "%name% (") || Token::Match(tok, "for|if|while|switch|sizeof|catch|asm|return"))
+            continue;
+
+        if (tok->varId() != 0 || tok->type() || tok->isStandardType())
+            continue;
+
+        if (tok->linkAt(1)->strAt(1) == "(")
+            continue;
+
+        if (!_settings->library.isNotLibraryFunction(tok))
+            continue;
+
+        const std::string &functionName = _settings->library.getFunctionName(tok);
+        if (functionName.empty() || _settings->library.functions.find(functionName) != _settings->library.functions.end())
+            continue;
+
+        reportError(tok,
+                    Severity::information,
+                    "checkLibraryFunction",
+                    "--check-library: There is no matching configuration for function " + functionName + "()");
     }
 }
